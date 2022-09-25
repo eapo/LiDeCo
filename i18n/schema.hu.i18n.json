@@ -24,6 +24,11 @@
       "label": "Megjegyzések"
     }
   },
+  "schemaText": {
+    "text": {
+      "label": "Szöveg"
+    }
+  },
   "schemaAttachmentField": {
     "attachments": {
       "label": "Fénykép vagy fájl (ha csatolni szeretne)",
@@ -53,6 +58,9 @@
       }
     }
   },
+  "schemaAccountingPeriods": {
+    "accountingClosedAt": "Könyvelés lezárva"
+  },
   "schemaAccounts": {
     "category": {
       "label": "Számla típus",
@@ -77,6 +85,10 @@
       "label": "Kód",
       "placeholder": "(pl. 245)",
       "help": "Egyedinek kell lennie. Ha már lett tranzakció ezen a főkönyvi számon könyvelve, utána már nem módosítható."
+    },
+    "allowPost": {
+      "label": "Könyvelhetünk ide",
+      "help": "Kapcsolja ki, ha nem lehet ide könyvelni"
     },
     "bank": {
       "label": "Bank neve",
@@ -428,6 +440,18 @@
       "label": "Lakók száma (fő)",
       "placeholder": "(pl. 4)",
       "help": "Csak akkor szükséges megadni, ha ez alapján szeretne előírni."
+    },
+    "debit": {
+      "label": "Terhelés"
+    },
+    "credit": {
+      "label": "Jóváírás"
+    },
+    "debitTotal": {
+      "label": "Hátralék"
+    },
+    "creditTotal": {
+      "label": "Túlfizetés"
     }
   },
   "schemaTopics": {
@@ -445,12 +469,17 @@
     },
     "title": {
       "label": "Cím",
-      "placeholder": "Rövid összefoglalás"
+      "placeholder": "Rövid összefoglalás",
+      "help": "Ha nem ad meg címet, a kifejtés első sora lesz a cím"
     },
     "text": {
-      "label": "Részletek",
+      "label": "Kifejtés",
       "placeholder": "Bővebb kifejtés (amennyiben szükséges)..."
     },
+    "notiLocalizer": {
+      "label": "Értesítési hely",
+      "help": "Megjelölhet egy vagy több helyet (épület, emeletek, albetétek) amiket érint ez a téma, hogy kapjanak róla értesítőt. Hagyja üresen, ha nem kívánja helyileg korlátozni az értesítéseket."
+    },    
     "shareddocs": {
       "label": "Dokumentumok (ha csatolni szeretne)",
       "$": {
@@ -491,7 +520,7 @@
       "placeholder": "(pl. Fessük-e a falat kékre?)"
     },
     "text": {
-      "label": "Részletek",
+      "label": "Kifejtés",
       "placeholder": "A szavazás kérdésének bővebb kifejtése ..."
     },
     "agendaId": {
@@ -504,6 +533,10 @@
       "label": "Szavazás lezárulása"
     },
     "vote": {
+      "allowAddChoices": {
+        "label": "Mások is hozzáadhatnak lehetőségeket",
+        "help": "Ha ezt engedélyezi, akkor a többi felhasználó is tud menet közben még további választási lehetőségeket hozzáadni. Mindegyik mellé ki lesz írva, hogy ki ajánlotta."
+      },
       "choices": {
         "label": "Választási lehetőségek",
         "help": "A szavazás típusa meghatározhatja a választási lehetőségeket (például igen-nem szavazás esetén). Amikor nem, akkor ön adhatja meg a lehetséges válaszokat. Előszőr tehát mindenképpen válassza meg a típust."
@@ -730,7 +763,6 @@
       "options": {
         "bill": "számla",
         "payment": "fizetés",
-        "remission": "elengedés",
         "receipt": "elszámolás",
         "transfer": "átvezetés számlák között",
         "exchange": "átvezetés partnerek között",
@@ -808,6 +840,10 @@
         },
         "localizer": {
           "label": "Könyvelési hely"
+        },
+        "subTx": {
+          "label": "Könyvelési részművelet",
+          "help": "Ha a tranzakció több könyvelési részműveletből áll, akkor adja meg itt a sorszámát"
         }         
       }
     },
@@ -826,24 +862,6 @@
         }
       }
     },
-    "pEntries": {
-      "label": "Partner tételek",
-      "$": {
-        "amount": {
-          "label": "Összeg"
-        },
-        "side": {
-          "label": "Oldal",
-          "options": {
-            "debit": "Tartozik",
-            "credit": "Követel"
-          }
-        },
-        "partner": {
-          "label": "Partner/Szerződés"
-        }         
-      }
-    },
     // Following lines are for the different txdefs
     "supplierBillId": {
       "label": "Bejövő számla, amit beszámítunk"
@@ -858,10 +876,11 @@
       "label": "Átvezetés ide (T)"
     },
     "fromPartner": {
-      "label": "Átvezetés innen (K)"
+      "label": "Küldő partner (K)",
+      "help": "Hagyja kitöltetlenül, ha azt szeretné hogy beazonosítatlan pénzt rendeljen a Fogadó partnerhez"
     },
     "toPartner": {
-      "label": "Átvezetés ide (T)"
+      "label": "Fogadó partner (T)"
     },
     "side": {
       "label": "Oldal",
@@ -871,10 +890,12 @@
       }
     },
     "account": {
-      "label": "Főkönyvi számla"
+      "label": "Főkönyvi számla",
+      "help": "Főkönyvi számla, amin a tranzakció megtörténik"
     },
     "relationAccount": {
-      "label": "Könyvelési számla"
+      "label": "Követeléskezelési számla",
+      "help": "Az alszámlát ne válassza ki, csak a gyűjtőszámlát adja meg itt! Az alszámlákat a számlasorok könyveléséből automatikusan határozza meg a rendszer."
     },
     "payAccount": {
       "label": "Pénz számla"
@@ -951,7 +972,6 @@
       "options": {
         "bill": "számla",
         "payment": "fizetés",
-        "remission": "elengedés",
         "receipt": "elszámolás",
         "transfer": "átvezetés számlák között",
         "exchange": "átvezetés partnerek között",
@@ -980,10 +1000,19 @@
           "credit": "Követel"
         }
       },
-      "remission": {
-        "label": "Elengedés?",
-        "help": "Akkor szükséges ha a főtípus fizetés."
-      }      
+      "paymentSubType": {
+        "label": "Fizetés altípus",
+        "help": "Akkor szükséges ha a főtípus Fizetés.",
+        "options": {
+          "payment": "fizetés",
+          "identification": "beazonosítás",
+          "remission": "elengedés"
+        }
+      },
+      "autoPosting": {
+        "label": "Automatikus könyvelésbe küldés",
+        "help": "Kapcsolja be, ha a tranzakciókat a létrehozáskor automatikusan szeretné könyvelésbe is küldeni."
+      }
     },
     "debit": {
       "label": "Tartozik",
@@ -991,6 +1020,16 @@
     },
     "credit": {
       "label": "Követel",
+      "placeholder": ""
+    },
+    "debit_unidentified": {
+      "label": "Beazonosítatlan Tartozik",
+      "help": "Csak Fizetés esetén szükséges. Ami nem beazonosítható összeg, az erre a T számlára kerülhet.",
+      "placeholder": ""
+    },
+    "credit_unidentified": {
+      "label": "Beazonosítatlan Követel",
+      "help": "Csak Fizetés esetén szükséges. Ami nem beazonosítható összeg, az erre a K számlára kerülhet.",
       "placeholder": ""
     }
   },
@@ -1075,11 +1114,11 @@
   },
   "schemaBills": {
     "relation": {
-      "label": "Oldal",
+      "label": "Viszony",
       "options": {
-        "supplier": "Bejövő számla",
-        "customer": "Kimenő számla",
-        "member": "Előírás"
+        "supplier": "Szállító számla",
+        "customer": "Vevő számla",
+        "member": "Albetét előírás"
       }
     },
     "issueDate": {
@@ -1226,8 +1265,16 @@
       }
     },
     "outstanding": {
-      "label": "Egyeztetendő",
+      "label": "Beazonosítatlan",
       "placeholder": "(pl. 14560)"
+    },
+    "paymentSubType": {
+      "label": "Fizetés altípus",
+      "options": {
+        "payment": "fizetés",
+        "identification": "korábbi befizetés beazonosítás",
+        "remission": "elengedés"
+      }
     }
   },
   "schemaParcelBillings": {

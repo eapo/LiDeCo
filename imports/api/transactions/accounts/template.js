@@ -7,8 +7,7 @@ export function defineAccountTemplates() {
 
   Templates.define({ _id: 'Condominium_COA', accounts: [
     { code: '`', name: 'Chart of Accounts', category: 'technical', locked: true },
-//  { code: '`0', name: 'Opening' },// TECHNIKAI SZÁMLÁK
-    // 1
+    { code: '`0', name: 'Technical accounts', category: 'technical', locked: true },  // TECHNIKAI SZÁMLÁK
     { code: '`1', name: 'BEFEKTETETT ESZKÖZÖK', category: 'asset', locked: true, sign: +1 },
     { code: '`13', name: 'MŰSZAKI BERENDEZÉSEK', category: 'asset' },
     { code: '`14', name: 'EGYÉB BERENDEZÉSEK', category: 'asset' },
@@ -34,7 +33,7 @@ export function defineAccountTemplates() {
     { code: '`382', name: 'Checking account', category: 'bank', primary: true }, // Folyószámla
     { code: '`383', name: 'Savings account', category: 'bank', primary: false }, // Megtakarítási számla
     { code: '`384', name: 'LTP', category: 'bank', primary: false }, // FUNDAMENTA
-    { code: '`389', name: 'Barter account', category: 'technical' }, // Barter számla
+//    { code: '`389', name: 'Barter account', category: 'technical' }, // Barter számla
     { code: '`39', name: 'AKTÍV IDŐBELI ELHATÁROLÁSOK', category: 'asset' },
     // 4
     { code: '`4', name: 'Liabilities', category: 'liability', locked: true, sign: -1 },  // FORRÁSOK
@@ -154,6 +153,7 @@ export function defineAccountTemplates() {
     { code: '`973', name: 'Hitelintézettől kapott kamatok', category: 'income' },
     { code: '`974', name: 'Egyéb pénzügyi bevételek', category: 'income' },
     { code: '`98', name: 'RENDKIVÜLI BEVÉTELEK', category: 'income' },
+    { code: '`981', name: 'Tovább hárított szolgáltatások', category: 'income' },
     { code: '`99', name: 'KEREKÍTÉSI NYERESÉG-VESZTESÉG', category: 'income' },
   ],
   });

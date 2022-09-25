@@ -58,6 +58,7 @@ Transactions.actions = {
     visible: user.hasPermission('transactions.insert', doc),
     run() {
       const modalStackNewDoc = ModalStack.getVar('newDoc');
+//      debugAssert(!modalStackNewDoc || !doc, 'Pass in a doc either way, but not through both');
       doc = _.extend(defaultNewDoc(), modalStackNewDoc, doc);
       const entity = figureOutEntity(options, doc);
       doc = Transactions._transform(doc);
@@ -100,8 +101,7 @@ Transactions.actions = {
   view: (options, doc, user = Meteor.userOrNull()) => ({
     name: 'view',
     icon: 'fa fa-eye',
-    visible: doc && (user.hasPermission('transactions.inCommunity', doc) || getActivePartnerId() === doc.partnerId
-      || (doc.contractId && _.contains(Contracts.findOneActive(doc.contractId)?.entitledToView(), getActivePartnerId()))),
+    visible: doc && (user.hasPermission('transactions.inCommunity', doc) || doc.contract()?.entitledToView(user)),
     run() {
       const entity = Transactions.entities[doc.entityName()];
       Modal.show('Autoform_modal', {
@@ -119,33 +119,6 @@ Transactions.actions = {
       });
     },
   }),
-  edit: (options, doc, user = Meteor.userOrNull()) => ({
-    name: 'edit',
-    icon: 'fa fa-pencil',
-    visible: doc && !(doc.isPosted() && doc.isPetrified())
-//      && !(doc.category === 'bill' && doc.relation === 'member') // cannot edit manually, use parcel billing
-      && user.hasPermission('transactions.update', doc),
-    run() {
-      const entity = Transactions.entities[doc.entityName()];
-      Modal.show('Autoform_modal', {
-        body: entity.editForm,
-        bodyContext: { doc },
-        description: doc.isPosted() && 'You are now editing a transaction that is already posted',
-        // --- --- --- ---
-        id: `af.${entity.name}.edit`,
-        schema: Transactions.simpleSchema({ category: entity.name }),
-        fields: entity.fields,
-        omitFields: entity.omitFields && entity.omitFields(),
-        doc,
-        type: 'method-update',
-        meteormethod: 'transactions.update',
-        singleMethodArgument: true,
-        // --- --- --- ---
-        size: entity.size || 'md',
-//        validation: entity.editForm ? 'blur' : undefined,
-      });
-    },
-  }),
   post: (options, doc, user = Meteor.userOrNull()) => ({
     name: 'post',
     icon: doc && doc.isPosted() ? 'fa fa-list' : 'fa fa-check-square-o',
@@ -156,6 +129,7 @@ Transactions.actions = {
     run() {
       if (doc.isPosted()) {
         Modal.show('Modal', {
+          id: 'accounting.view',
           title: 'Accounting view',
           body: 'Transaction_view',
           bodyContext: { doc },
@@ -200,6 +174,33 @@ Transactions.actions = {
       });
     },
   }), */
+  edit: (options, doc, user = Meteor.userOrNull()) => ({
+    name: 'edit',
+    icon: 'fa fa-pencil',
+    visible: doc && !(doc.isPosted() && doc.isPetrified())
+//      && !(doc.category === 'bill' && doc.relation === 'member') // cannot edit manually, use parcel billing
+      && user.hasPermission('transactions.update', doc),
+    run() {
+      const entity = Transactions.entities[doc.entityName()];
+      Modal.show('Autoform_modal', {
+        body: entity.editForm,
+        bodyContext: { doc },
+        description: doc.isPosted() && 'You are now editing a transaction that is already posted',
+        // --- --- --- ---
+        id: `af.${entity.name}.edit`,
+        schema: Transactions.simpleSchema({ category: entity.name }),
+        fields: entity.fields,
+        omitFields: entity.omitFields && entity.omitFields(),
+        doc,
+        type: 'method-update',
+        meteormethod: 'transactions.update',
+        singleMethodArgument: true,
+        // --- --- --- ---
+        size: entity.size || 'md',
+//        validation: entity.editForm ? 'blur' : undefined,
+      });
+    },
+  }),
   reallocate: (options, doc, user = Meteor.userOrNull()) => ({
     name: 'reallocate',
     label: 'reallocate',
@@ -228,7 +229,7 @@ Transactions.actions = {
   resend: (options, doc, user = Meteor.userOrNull()) => ({
     name: 'resend',
     icon: 'fa fa-envelope',
-    visible: doc && doc.isPosted() && user.hasPermission('transactions.resend', doc),
+    visible: doc && doc.category === 'bill' && doc.isPosted() && doc.outstanding && user.hasPermission('transactions.post', doc),
     run() {
       Modal.confirmAndCall(Transactions.methods.resend, { _id: doc._id }, {
         action: 'resend',
@@ -242,12 +243,13 @@ Transactions.actions = {
     label: 'registerPayment',
     icon: 'fa fa-credit-card',
     color: 'info',
-    visible: doc.community().settings.paymentsWoStatement && doc?.category === 'bill' && doc.outstanding
+    visible: doc.community().settings.paymentsWoStatement && doc?.category === 'bill' && doc.outstanding && !(doc.availableAmountFromOverPayment() > 0)
       && user.hasPermission('transactions.insert', doc),
     run() {
       ModalStack.setVar('billId', doc._id);
-      const paymentDef = Txdefs.findOne({ communityId: doc.communityId, category: 'payment', 'data.relation': doc.relation });
+      const paymentDef = doc.correspondingPaymentTxdef();
       const paymentOptions = _.extend({}, options, { entity: Transactions.entities.payment, txdef: paymentDef });
+      const paymentAmount = doc.outstanding;
       const paymentTx = {
         category: 'payment',
         defId: paymentDef._id,
@@ -256,14 +258,14 @@ Transactions.actions = {
         relation: doc.relation,
         partnerId: doc.partnerId,
         contractId: doc.contractId,
-        amount: doc.amount,
-        bills: [{ id: doc._id, amount: doc.outstanding }],
+        amount: paymentAmount,
+        bills: [{ id: doc._id, amount: paymentAmount }],
       };
 //      const paymentDoc = Transactions._transform(paymentTx);
       Transactions.actions.create(paymentOptions, paymentTx).run();
     },
   }),
-  connectPayment: (options, doc, user = Meteor.userOrNull()) => {
+/*  connectPayment: (options, doc, user = Meteor.userOrNull()) => {
     const connectablePayment = doc.outstanding && (doc.category === 'bill') &&
       Transactions.findOne({ communityId: doc.communityId, category: 'payment', partnerId: doc.partnerId, outstanding: { $ne: 0 } });
     return {
@@ -279,7 +281,60 @@ Transactions.actions = {
         } else Transactions.actions.edit({}, connectablePayment).run();
       },
     };
-  },
+  },*/
+  registerIdentification: (options, doc, user = Meteor.userOrNull()) => ({
+    name: 'registerIdentification',
+    label: 'registerIdentification',
+    icon: 'fa fa-arrow-circle-left',
+    color: 'warning',
+    visible: doc && doc.isPosted() && doc.category === 'bill' && doc.outstanding && doc.availableAmountFromOverPayment() > 0 && user.hasPermission('transactions.update', doc),
+    run() {
+      ModalStack.setVar('billId', doc._id);
+      const overpayment = doc.availableAmountFromOverPayment();
+      debugAssert(overpayment > 0, 'Can only use this action when there is overpayment on this partner contract');
+      const paymentDef = doc.correspondingIdentificationTxdef();
+      const paymentOptions = _.extend({}, options, { entity: Transactions.entities.payment, txdef: paymentDef });
+      const paymentAmount = Math.min(doc.outstanding, overpayment);
+      const paymentTx = {
+        category: 'payment',
+        defId: paymentDef._id,
+        valueDate: new Date(),
+        // - copied from the doc -
+        relation: doc.relation,
+        partnerId: doc.partnerId,
+        contractId: doc.contractId,
+        amount: paymentAmount,
+        bills: [{ id: doc._id, amount: paymentAmount }],
+      };
+//      const paymentDoc = Transactions._transform(paymentTx);
+      Transactions.actions.create(paymentOptions, paymentTx).run();
+    },
+  }),
+  registerRemission: (options, doc, user = Meteor.userOrNull()) => ({
+    name: 'registerRemission',
+    label: 'registerRemission',
+    icon: 'fa fa-times',
+    visible: doc && doc.isPosted() && doc.category === 'bill' && doc.outstanding && user.hasPermission('transactions.update', doc),
+    run() {
+      ModalStack.setVar('billId', doc._id);
+      const paymentDef = doc.correspondingRemissionTxdef();
+      const paymentOptions = _.extend({}, options, { entity: Transactions.entities.payment, txdef: paymentDef });
+      const paymentAmount = doc.outstanding;
+      const paymentTx = {
+        category: 'payment',
+        defId: paymentDef._id,
+        valueDate: new Date(),
+        // - copied from the doc -
+        relation: doc.relation,
+        partnerId: doc.partnerId,
+        contractId: doc.contractId,
+        amount: paymentAmount,
+        bills: [{ id: doc._id, amount: paymentAmount }],
+      };
+//      const paymentDoc = Transactions._transform(paymentTx);
+      Transactions.actions.create(paymentOptions, paymentTx).run();
+    },
+  }),
   delete: (options, doc, user = Meteor.userOrNull()) => ({
     name: 'delete',
     label: doc.isPosted() ? 'storno' : 'delete',

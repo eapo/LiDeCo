@@ -1,9 +1,11 @@
+import { Meteor } from 'meteor/meteor';
 import { Template } from 'meteor/templating';
 import { _ } from 'meteor/underscore';
 import { moment } from 'meteor/momentjs:moment';
 import { $ } from 'meteor/jquery';
 
 import { __ } from '/imports/localization/i18n.js';
+import { Period } from '/imports/api/transactions/periods/period.js';
 import { ModalStack } from '/imports/ui_3/lib/modal-stack.js';
 import { validDateOrUndefined } from '/imports/api/utils';
 import { JournalEntries } from '/imports/api/transactions/journal-entries/journal-entries.js';
@@ -68,24 +70,30 @@ Template.Partner_history.viewmodel({
   beginBalanceDef() {
     if (!this.contractToView()) return {};
     const contract = Contracts.findOne(this.contractToView());
+    const year = validDateOrUndefined(this.beginDate())?.getFullYear();
+    const period = Period.fromValues(year);
     return {
       communityId: this.communityId(),
       partner: contract?.code() || null,
+      tag: period.toTag(),
     };
   },
   history() {
     if (!this.contractToView()) return {};
     const result = {};
     const contract = Contracts.findOne(this.contractToView());
-    result.beginBalance = Balances.getCumulatedValue(this.beginBalanceDef(), moment(this.beginDate()).subtract(1, 'day')).total();
+    result.beginBalance = Balances.getOpeningValue(this.beginBalanceDef()).total() * (-1);
     const selector = Transactions.makeFilterSelector(this.subscribeParams());
-    const txs = Transactions.find(selector, { sort: { valueDate: 1 } });
+    const txs = Transactions.find(selector, { sort: [['valueDate', 'asc'], ['createdAt', 'asc']] });
     let total = result.beginBalance;
-    const txsWithRunningTotal = txs.map(tx => {
-      const contractAmount = tx.getContractAmount(contract);
-      total += contractAmount;
-      return _.extend(tx, { contractAmount, total });
+    let txsWithRunningTotal = txs.map(tx => {
+      const effectiveAmount = tx.getContractAmount(contract) * (-1);
+      total += effectiveAmount;
+      return _.extend(tx, { effectiveAmount, total });
     });
+    if (!Meteor.user().hasPermission('transactions.inCommunity')) {
+      txsWithRunningTotal = txsWithRunningTotal.filter(tx => tx.effectiveAmount);
+    }
     result.transactions = txsWithRunningTotal.reverse();
     result.predecessor = contract?.predecessor();
     return result;

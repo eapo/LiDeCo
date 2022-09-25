@@ -58,15 +58,26 @@ Template.Top_navbar.helpers({
     if (!Meteor.user()) { return []; }
     return Meteor.user().communities();
   },
+  superCommunities() {
+    if (!Meteor.user()?.super) { return undefined; }
+    return Communities.find({}).fetch();
+  },
   unseenEventsCount(roomTitle) {
     const communityId = ModalStack.getVar('communityId');
     const userId = Meteor.userId();
     const rooms = Topics.find({ communityId, category: 'room', title: roomTitle });
     let count = 0;
+    const correspondents = [];
     rooms.map(room => {
-      count += room.unseenCommentCountBy(userId, Meteor.users.SEEN_BY.EYES);
+      const unseenCommentsCount = room.unseenCommentCountBy(userId, Meteor.users.SEEN_BY.EYES);
+      count += unseenCommentsCount;
+      if (unseenCommentsCount > 0) {
+        const otherUserId = room.participantIds.find(id => id !== userId);
+        const otherUserName = Meteor.users.findOne(otherUserId)?.displayOfficialName();
+        correspondents.push(otherUserName);
+      }
     });
-    return count;
+    return { count, correspondents };
   },
   nameMismatchCounter() {
     return Meteor.user().personNameMismatch() ? 1 : 0;

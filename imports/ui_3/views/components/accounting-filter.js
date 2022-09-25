@@ -42,7 +42,14 @@ ViewModel.share({
       const communityId = this.communityId();
       this.localizerOptions(Parcels.nodeOptionsOf(communityId, ''));
       const partnerContractSelector = { communityId, relation: ModalStack.getVar('relation') };
-      this.partnerContractOptions([{ label: __('All'), value: '' }].concat(Contracts.partnerContractOptions(partnerContractSelector)));
+      this.partnerContractOptions(Contracts.partnerContractOptionsWithAll(partnerContractSelector));
+    },
+    transactionsSubscriptionParams() {
+      return (this.beginDate() !== 'loadingValue') && {
+        communityId: this.communityId(),
+        begin: validDateOrUndefined(this.beginDate()),
+        end: validDateOrUndefined(this.endDate()),
+      };
     },
     communityId() {
       return ModalStack.getVar('communityId');
@@ -97,9 +104,7 @@ ViewModel.share({
       if (this.unreconciledOnly()) {
         if (category === 'bill') selector.outstanding = { $ne: 0 };
         else if (category === 'receipt') selector.reconciled = false;
-        else if (category === 'payment') {
-          selector.$and.push({ $or: [{ outstanding: { $ne: 0 } }, { reconciled: false }] });
-        }
+        else if (category === 'payment') selector.reconciled = false;
       }
       return Transactions.makeFilterSelector(selector);
     },

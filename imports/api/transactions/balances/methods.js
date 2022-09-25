@@ -1,4 +1,3 @@
-
 import { Meteor } from 'meteor/meteor';
 import { ValidatedMethod } from 'meteor/mdg:validated-method';
 import { SimpleSchema } from 'meteor/aldeed:simple-schema';
@@ -58,6 +57,38 @@ export const remove = new ValidatedMethod({
     throw new Meteor.Error('err_notImplemented');
   },
 });
+
+export const checkAllCorrect = new ValidatedMethod({
+  name: 'balances.checkAllCorrect',
+  validate: new SimpleSchema({
+    communityId: { type: String, regEx: SimpleSchema.RegEx.Id },
+  }).validator(),
+  run({ communityId }) {
+    if (Meteor.isClient) return; // No complete tx data on the client to perform check.
+    const balanceStat = { count: 0, misCalculated: [] };
+    const tBalances = Balances.find({ communityId, tag: new RegExp('^T') });
+    balanceStat.count = tBalances.count();
+    const lang = Meteor.users.findOne(this.userId).settings.language;
+    tBalances.forEach((bal) => {
+      delete bal._id;
+      const foundWrong = Balances.checkCorrect(bal, lang);
+      if (foundWrong) balanceStat.misCalculated.push(foundWrong);
+    });
+    return balanceStat;
+  },
+});
+
+export const ensureAllCorrect = new ValidatedMethod({
+  name: 'balances.ensureAllCorrect',
+  validate: new SimpleSchema({
+    communityId: { type: String, regEx: SimpleSchema.RegEx.Id },
+  }).validator(),
+  run({ communityId }) {
+    checkPermissions(this.userId, 'balances.update', { communityId });
+    Balances.ensureAllCorrect(communityId);
+  },
+});
+
 /*
 export const publish = new ValidatedMethod({
   name: 'balances.publish',

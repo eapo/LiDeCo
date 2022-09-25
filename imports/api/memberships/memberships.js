@@ -101,6 +101,7 @@ Meteor.startup(function indexMemberships() {
   Memberships.ensureIndex({ partnerId: 1 });
   if (Meteor.isServer) {
     Memberships._ensureIndex({ communityId: 1, parcelId: 1, approved: 1, active: 1, role: 1 });
+    Memberships._ensureIndex({ communityId: 1, approved: 1, active: 1, role: 1 });
   }
 });
 
@@ -160,17 +161,19 @@ Memberships.helpers({
     return true;
   },
   votingUnits() {
-    if (!this.parcel()) return 0;
-    if (!this.parcel().approved) return 0;
-    if (this.parcel().isLed()) return 0;
-    const votingUnits = this.isRepresentor() ? this.parcel().ledUnits() : this.parcel().ledUnits() * this.ownership.share.toNumber();
+    const parcel = this.parcel();
+    if (!parcel) return 0;
+    if (!parcel.approved) return 0;
+    if (parcel.isLed()) return 0;
+    const votingUnits = this.isRepresentor() ? parcel.ledUnits() : parcel.ledUnits() * this.ownership.share.toNumber();
     return votingUnits;
   },
   votingShare() {
-    if (!this.parcel()) return 0;
-    if (!this.parcel().approved) return 0;
-    if (this.parcel().isLed()) return 0;
-    const votingShare = this.isRepresentor() ? this.parcel().ledShare() : this.parcel().ledShare().multiply(this.ownership.share);
+    const parcel = this.parcel();
+    if (!parcel) return 0;
+    if (!parcel.approved) return 0;
+    if (parcel.isLed()) return 0;
+    const votingShare = this.isRepresentor() ? parcel.ledShare() : parcel.ledShare().multiply(this.ownership.share);
     return votingShare;
   },
   displayRole() {

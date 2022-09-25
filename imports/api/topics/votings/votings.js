@@ -1,5 +1,6 @@
 import { Meteor } from 'meteor/meteor';
 import { SimpleSchema } from 'meteor/aldeed:simple-schema';
+import { AutoForm } from 'meteor/aldeed:autoform';
 import { moment } from 'meteor/momentjs:moment';
 import { _ } from 'meteor/underscore';
 import { Fraction } from 'fractional';
@@ -54,6 +55,12 @@ Votings.voteSchema = new SimpleSchema({
   procedure: { type: String, allowedValues: Votings.voteProcedureValues, autoform: { ...allowedOptions(), ...noUpdate } },
   effect: { type: String, allowedValues: Votings.voteEffectValues, autoform: { ...autoformOptions(possibleEffectValues, 'schemaVotings.vote.effect.options.'), ...noUpdate } },
   type: { type: String, allowedValues: Votings.voteTypeValues, autoform: { ...allowedOptions(), ...noUpdate } },
+  allowAddChoices: { type: Boolean, optional: true, autoform: {
+    disabled: () => {
+      const type = AutoForm.getFieldValue('vote.type');
+      return !type || !!Votings.voteTypes[type].fixedChoices;
+    },
+  } },
   choices: {
     type: Array,
     autoValue() {
@@ -61,7 +68,9 @@ Votings.voteSchema = new SimpleSchema({
       return undefined;
     },
   },
-  'choices.$': { type: String },
+  'choices.$': { type: String, autoform: { disabled: true } },
+  choicesAddedBy: { type: Array, optional: true, autoform: { omit: true, disabled: true } },
+  'choicesAddedBy.$': { type: String, regEx: SimpleSchema.RegEx.Id /* userId */ },
 });
 
 Votings.voteParticipationSchema = new SimpleSchema({
@@ -103,6 +112,11 @@ Topics.categoryHelpers('vote', {
     let choice = this.vote.choices[index];
     if (Votings.voteTypes[this.vote.type].fixedChoices) choice = TAPi18n.__(choice, {}, language);
     return choice;
+  },
+  modifiableFields() {
+    return Topics.modifiableFields.concat([
+      'vote.allowAddChoices',
+    ]);
   },
   unitsToShare(units) {
     const community = this.community();
@@ -147,8 +161,18 @@ Topics.categoryHelpers('vote', {
   hasVoted(partnerId) {
     return this.hasVotedDirect(partnerId) || this.hasVotedIndirect(partnerId);
   },
+  extendVote(registeredVote) {
+    // During voting, new choices could have been added. The casted vote should take these into consideration as well.
+    if (this.vote.type === 'preferential' && this.vote.choices.length > registeredVote.length) {
+      for (let i = registeredVote.length; i < this.vote.choices.length; ++i) {
+        registeredVote[i] = i;
+      }
+    }
+  },
   voteOf(partnerId) {
-    return (this.voteCasts && this.voteCasts[partnerId]) || (this.voteCastsIndirect && this.voteCastsIndirect[partnerId]);
+    const registeredVote = (this.voteCasts && this.voteCasts[partnerId]) || (this.voteCastsIndirect && this.voteCastsIndirect[partnerId]);
+    if (registeredVote?.length) this.extendVote(registeredVote);
+    return registeredVote;
   },
   votingClosed() {
     return this.status === 'votingFinished' || this.status === 'closed';
@@ -172,21 +196,23 @@ Topics.categoryHelpers('vote', {
       function getVoteResult(voterId) {
         const castedVote = directVotes[voterId];
         if (castedVote) {
+          const votingUnits = votership.votingUnits();
           const result = {
-            votingShare: votership.votingUnits(),
+            votingShare: votingUnits,
             castedVote,
             votePath,
           };
           voteResults[votership._id] = result;
           voteCastsIndirect[partnerId] = castedVote;
           votePaths[partnerId] = votePath;
+          self.extendVote(castedVote);
           castedVote.forEach((choice, i) => {
             voteSummary[choice] = voteSummary[choice] || 0;
             const choiceWeight = (voteType === 'preferential') ? (1 - (i / castedVote.length)) : 1;
-            voteSummary[choice] += votership.votingUnits() * choiceWeight;
+            voteSummary[choice] += votingUnits * choiceWeight;
           });
           voteParticipation.count += 1;
-          voteParticipation.units += votership.votingUnits();
+          voteParticipation.units += votingUnits;
           return true;
         }
         const delegations = Delegations.find({ sourceId: voterId,
@@ -244,12 +270,14 @@ Topics.categoryHelpers('vote', {
     if (!this.voteSummary) return [];   // Results come down in a different sub, so it might not be there just yet
     const voteSummarydata = Object.keys(this.voteSummary).map(key => {
       const choice = this.vote.choices[key];
+      const adderId = this.vote.choicesAddedBy?.[key];
       const votingUnits = this.voteSummary[key];
       const votingShare = this.unitsToShare(this.voteSummary[key]);
       const percentOfTotal = (votingShare.toNumber() * 100);
       const percentOfVotes = ((votingUnits / this.voteParticipation.units) * 100);
-      return { 
+      return {
         choice,
+        adderId,
         votingUnits: votingUnits.round(0),
         votingShare,
         percentOfTotal: percentOfTotal.round(2),

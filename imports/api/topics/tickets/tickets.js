@@ -7,7 +7,7 @@ import faker from 'faker';
 import { ModalStack } from '/imports/ui_3/lib/modal-stack.js';
 import { Clock } from '/imports/utils/clock.js';
 import { allowedOptions } from '/imports/utils/autoform.js';
-import { chooseParcel } from '/imports/api/parcels/parcels.js';
+import { chooseLocalizer } from '/imports/api/parcels/parcels.js';
 import { Topics } from '/imports/api/topics/topics.js';
 import { Comments } from '/imports/api/comments/comments.js';
 import { choosePartner } from '/imports/api/partners/partners.js';
@@ -24,7 +24,7 @@ Tickets.chargeTypeValues = ['oneoff', 'lumpsum', 'warranty', 'insurance'];
 Tickets.extensionRawSchema = {
   type: { type: String, allowedValues: Tickets.typeValues, autoform: { type: 'hidden' } },
   urgency: { type: String, allowedValues: Tickets.urgencyValues, autoform: allowedOptions(), defaultValue: 'normal' },
-  localizer: { type: String, optional: true, autoform: chooseParcel() },
+  localizer: { type: String, optional: true, autoform: chooseLocalizer },
   partnerId: { type: String, regEx: SimpleSchema.RegEx.Id, optional: true, autoform: { ...choosePartner } },
   contractId: { type: String, regEx: SimpleSchema.RegEx.Id, autoform: { ...chooseContract }, optional: true },
   chargeType: { type: String, allowedValues: Tickets.chargeTypeValues, autoform: allowedOptions(), optional: true },
@@ -154,30 +154,30 @@ Tickets.statusValues = Object.keys(Tickets.statuses);
 Tickets.workflows = {
   issue: {
     start: [reported],
-    reported: { obj: reported, next: [confirmed, closed, deleted] },
-    confirmed: { obj: confirmed, next: [progressing, suspended, closed] },
-    progressing: { obj: progressing, next: [finished, suspended] },
-    suspended: { obj: suspended, next: [progressing, closed] },
+    reported: { obj: reported, next: [confirmed, finished, closed, deleted] },
+    confirmed: { obj: confirmed, next: [progressing, suspended, finished, closed] },
+    progressing: { obj: progressing, next: [suspended, finished, closed] },
+    suspended: { obj: suspended, next: [progressing, finished, closed] },
     finished: { obj: finished, next: [closed, progressing] },
     closed: { obj: closed, next: [reported, confirmed, progressing, suspended, finished, deleted] },
     deleted: { obj: deleted, next: [reported] },
   },
   upgrade: {
     start: [reported],
-    reported: { obj: reported, next: [confirmed, closed, deleted] },
-    confirmed: { obj: confirmed, next: [progressing, suspended, toApprove, toVote, closed] },
-    toApprove: { obj: toApprove, next: [progressing, confirmed, closed] },
-    toVote: { obj: toVote, next: [progressing, confirmed, closed] },
-    progressing: { obj: progressing, next: [finished, suspended] },
-    suspended: { obj: suspended, next: [progressing, closed] },
+    reported: { obj: reported, next: [confirmed, finished, closed, deleted] },
+    confirmed: { obj: confirmed, next: [progressing, suspended, toApprove, toVote, finished, closed] },
+    toApprove: { obj: toApprove, next: [progressing, confirmed, finished, closed] },
+    toVote: { obj: toVote, next: [progressing, confirmed, finished, closed] },
+    progressing: { obj: progressing, next: [suspended, finished, closed] },
+    suspended: { obj: suspended, next: [progressing, finished, closed] },
     finished: { obj: finished, next: [closed, progressing] },
     closed: { obj: closed, next: [reported, confirmed, toApprove, toVote, progressing, suspended, finished, deleted] },
     deleted: { obj: deleted, next: [reported] },
   },
   maintenance: {
     start: [scheduled],
-    scheduled: { obj: scheduled, next: [progressing] },
-    progressing: { obj: progressing, next: [finished] },
+    scheduled: { obj: scheduled, next: [progressing, finished, closed] },
+    progressing: { obj: progressing, next: [finished, closed] },
     finished: { obj: finished, next: [closed, progressing] },
     closed: { obj: closed, next: [scheduled, progressing, finished, deleted] },
     deleted: { obj: deleted, next: [scheduled] },

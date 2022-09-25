@@ -9,6 +9,7 @@ import { __ } from '/imports/localization/i18n.js';
 import { debugAssert, productionAssert } from '/imports/utils/assert.js';
 import { ModalStack } from '/imports/ui_3/lib/modal-stack.js';
 import { getActiveCommunityId } from '/imports/ui_3/lib/active-community.js';
+import { modifierChangesField, autoValueUpdate } from '/imports/api/mongo-utils.js';
 import { allowedOptions } from '/imports/utils/autoform.js';
 import { Timestamped } from '/imports/api/behaviours/timestamped.js';
 import { Templates } from '/imports/api/transactions/templates/templates.js';
@@ -19,13 +20,13 @@ Accounts.mainCategoryValues = ['asset', 'liability', 'equity', 'income', 'expens
 Accounts.simpleCategoryValues = Accounts.mainCategoryValues.concat(['payable', 'receivable']);
 Accounts.categoryValues = Accounts.mainCategoryValues.concat(['payable', 'receivable', 'cash', 'bank']);
 Accounts.syncValues = ['none', 'manual', 'auto'];
-Accounts.toLocalize = '`33';  // This account's balances will be stored for each localizer
 
 Accounts.schema = new SimpleSchema({
   communityId: { type: String, regEx: SimpleSchema.RegEx.Id, autoform: { type: 'hidden' } },
   category: { type: String, allowedValues: Accounts.categoryValues, autoform: allowedOptions() },
   name: { type: String, max: 100 },
   code: { type: String, max: 25 },
+  isGroup: { type: Boolean, optional: true, autoform: { omit: true } },
   locked: { type: Boolean, optional: true, autoform: { omit: true } },
   sign: { type: Number, allowedValues: [+1, -1], optional: true, autoform: { omit: true } },
 });
@@ -58,9 +59,26 @@ Accounts.isPayableOrReceivable = function isPayableOrReceivable(code, communityI
   return (category === 'payable' || category === 'receivable');
 };
 
+Accounts.isTechnicalCode = function isTechnicalCode(accountCode) {
+  return accountCode.substring(0, 2) === '`0';
+};
+
+Accounts.toTechnicalCode = function toTechnicalCode(accountCode) {
+  debugAssert(accountCode.charAt(0) === '`', 'only CoA accounts have technical accounts');
+  return '`0' + accountCode.substring(1);
+};
+
+Accounts.fromTechnicalCode = function fromTechnicalCode(accountCode) {
+  debugAssert(Accounts.isTechnicalCode(accountCode));
+  return '`' + accountCode.substring(2);
+};
+
 Accounts.toTechnical = function toTechnical(account) {
-  debugAssert(account.charAt(0) === '`', 'only CoA accounts have technical accounts');
-  return '`0' + account.substring(1);
+  debugAssert(account.code.charAt(0) === '`', 'only CoA accounts have technical accounts');
+  if (account.code === '`') return Accounts.getByCode('`0', account.communityId);
+  const technicalCode = Accounts.toTechnicalCode(account.code);
+  const technicalAccount = _.extend({}, account, { _id: '0' + account._id, category: 'technical', code: technicalCode });
+  return technicalAccount;
 };
 
 Accounts.helpers({
@@ -93,6 +111,13 @@ Accounts.helpers({
   },
 });
 
+Accounts.toLocalize = function toLocalize(communityId) {  // These accounts' balances will be stored for each localization tag
+  const Txdefs = Mongo.Collection.get('txdefs');
+  const def = Txdefs.getByName('Partner exchange', communityId);
+  productionAssert(def.debit.toString() === def.credit.toString(), "Don't mess with Partner exchange definition");
+  return def.debit;
+};
+
 _.extend(Accounts, {
   checkExists(communityId, code) {
     if (!code || !Accounts.findOne({ communityId, code })) {
@@ -104,6 +129,13 @@ _.extend(Accounts, {
   },
   all(communityId) {
     return Accounts.find({ communityId }, { sort: { code: 1 } });
+  },
+  allWithTechnical(communityId) {
+    const accounts = Accounts.find({ communityId }).fetch();
+    const technicalAccounts = accounts.map(a => Accounts.toTechnical(a));
+    const allAccounts = accounts.concat(technicalAccounts);
+    const sortedAccounts = _.sortBy(allAccounts, a => a.code);
+    return _.uniq(sortedAccounts, true, a => a.code);
   },
   getByCode(code, communityId = getActiveCommunityId()) {
     return Accounts.findOne({ communityId, code });
@@ -158,6 +190,17 @@ _.extend(Accounts, {
     },
     firstOption: () => __('(Select one)'),
   },
+  needsLocalization(code, communityId) {
+    let result = false;
+    const accountsToLocalize = Accounts.toLocalize(communityId);
+    accountsToLocalize.forEach(c => {
+      if (code.startsWith(c)) {
+        result = true;
+        return false;
+      }
+    });
+    return result;
+  },
 });
 
 Accounts.attachBaseSchema(Accounts.schema);
@@ -174,6 +217,47 @@ Accounts.simpleSchema({ category: 'bank' }).i18n('schemaAccounts');
 Accounts.simpleCategoryValues.forEach((category) => {
   Accounts.simpleSchema({ category }).i18n('schemaAccounts');
 });
+
+// --- Before/after functions ---
+
+function markGroupAccountsUpward(doc) {
+  const code = doc.code;
+  const parentCodes = [];
+  for (let i = 1; i < code.length; i++) {
+    const parentCode = code.slice(0, -1 * i);
+    parentCodes.push(parentCode);
+  }
+  Accounts.direct.update({ communityId: doc.communityId, code: { $in: parentCodes } }, { $set: { isGroup: true } }, { multi: true });
+}
+
+function unmarkGroupAccountsUpward(doc) {
+  const code = doc.code;
+  let parentCode;
+  for (let i = 1; i < code.length; i++) {
+    parentCode = code.slice(0, -1 * i);
+    if (Accounts.findOne({ communityId: doc.communityId, code: parentCode })) break;
+  }
+  if (Accounts.find({ communityId: doc.communityId, code: new RegExp('^' + parentCode) }).fetch().length === 1) {
+    Accounts.direct.update({ communityId: doc.communityId, code: parentCode }, { $set: { isGroup: false } });
+  }
+}
+
+if (Meteor.isServer) {
+  Accounts.after.insert(function (userId, doc) {
+    markGroupAccountsUpward(doc);
+  });
+
+  Accounts.after.update(function (userId, doc, fieldNames, modifier, options) {
+    if (modifierChangesField(modifier, ['code'])) {
+      unmarkGroupAccountsUpward(this.previous);
+      markGroupAccountsUpward(doc);
+    }
+  });
+
+  Accounts.after.remove(function (userId, doc) {
+    unmarkGroupAccountsUpward(doc);
+  });
+}
 
 // --- Factory ---
 

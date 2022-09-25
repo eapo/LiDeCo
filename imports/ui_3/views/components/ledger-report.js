@@ -1,36 +1,30 @@
+import { Meteor } from 'meteor/meteor';
 import { Template } from 'meteor/templating';
+import { Modal } from 'meteor/peppelg:bootstrap-3-modal';
 import { moment } from 'meteor/momentjs:moment';
+import { $ } from 'meteor/jquery';
 
+import { __ } from '/imports/localization/i18n.js';
 import { ModalStack } from '/imports/ui_3/lib/modal-stack.js';
 import { Balances } from '/imports/api/transactions/balances/balances.js';
-import { Period, PeriodBreakdown } from '/imports/api/transactions/breakdowns/period.js';
+import { Period } from '/imports/api/transactions/periods/period.js';
 import './ledger-report.html';
 
 Template.Ledger_report.onCreated(function onCreated() {
   this.autorun(() => {
     const communityId = ModalStack.getVar('communityId');
-    this.subscribe('balances.ofAccounts', { communityId });
+    const tags =  Template.currentData().tagtype === 'period' ? [Template.currentData().tag] : undefined;
+    this.subscribe('balances.inCommunity', { communityId, tags });
   });
 });
 
 Template.Ledger_report.helpers({
   balance(account, tag, sideFunc, tagtype) {
-    const period = Period.fromTag(tag);
-    let balance;
-    if (tagtype === 'period' || period.type() === 'total') {
-      balance = Balances.get({
-        communityId: ModalStack.getVar('communityId'),
-        account: account.code,
-        tag,
-      });
-    } else if (tagtype === 'cumulation') {
-      let date;
-      if (period.type() === 'year') date = period.year + '-12-31';
-      else if (period.type() === 'month') date = period.label + '-' + moment(period.label).daysInMonth();
-      balance = Balances.getCumulatedValue({
-        communityId: ModalStack.getVar('communityId'),
-        account: account.code }, date);
-    }
+    const balance = Balances.get({
+      communityId: ModalStack.getVar('communityId'),
+      account: account.code,
+      tag,
+    }, tagtype);
     return balance[sideFunc]();
   },
   hasActivity(account) {
@@ -45,8 +39,29 @@ Template.Ledger_report.helpers({
   displayAccount(account) {
     return account.displayAccount();
   },
-  displayPeriod(tag) {
-    const node = PeriodBreakdown.nodeByCode(tag);
-    return node.label || node.name;
+});
+
+Template.Ledger_report.events({
+  'click .cell,.row-header'(event, instance) {
+    const pageInstance = instance.parent(1);
+    const communityId = pageInstance.viewmodel.communityId();
+    if (!Meteor.user().hasPermission('transactions.inCommunity', { communityId })) return;
+    const accountCode = $(event.target).closest('[data-account]').data('account');
+    const periodTag = $(event.target).closest('[data-tag]').attr('data-tag');
+    const period = Period.fromTag(periodTag);
+    Modal.show('Modal', {
+      id: 'accounthistory.view',
+      title: __('Account history'),
+      body: 'Account_history',
+      bodyContext: {
+        beginDate: period.begin(),
+        endDate: period.end(),
+        accountOptions: pageInstance.viewmodel.accountOptions(),
+        accountSelected: '' + accountCode,
+        localizerOptions: pageInstance.viewmodel.localizerOptions(),
+        partnerContractOptions: pageInstance.viewmodel.partnerContractOptions(),
+      },
+      size: 'lg',
+    });
   },
 });

@@ -31,7 +31,9 @@ Template.Parcels_finances.viewmodel({
     instance.autorun(() => {
       const communityId = ModalStack.getVar('communityId');
       instance.subscribe('accounts.inCommunity', { communityId });
+      instance.subscribe('accountingPeriods.inCommunity', { communityId });
       instance.subscribe('parcels.ofSelf', { communityId });
+      instance.subscribe('contracts.ofEntitledOnes', { communityId });
       if (Meteor.userOrNull().hasPermission('transactions.inCommunity', { communityId })) {
         if (self.showAllParcels()) {
           instance.subscribe('parcels.outstanding', { communityId, selector: 'partner' });
@@ -47,23 +49,21 @@ Template.Parcels_finances.viewmodel({
   contractToView() {
     return Session.get('contractToView');
   },
-  myParcels() {
-    const communityId = ModalStack.getVar('communityId');
+  relevantParcels() {
     const user = Meteor.user();
+    const communityId = ModalStack.getVar('communityId');
     if (!user || !communityId) return [];
-    return user.ownedParcels(communityId);
+    return Parcels.find({ communityId, category: '@property', approved: true }).fetch().filter(p => !p.isLed() && p.payerContract() && user.hasPermission('parcels.finances', p));
   },
   contractChoices() {
-    const communityId = ModalStack.getVar('communityId');
-    const parcels = Meteor.userOrNull().hasPermission('balances.ofLocalizers', { communityId }) ?
-      Parcels.find({ communityId, category: '@property', approved: true }) : this.myParcels();
+    const parcels = this.relevantParcels();
     let contracts = parcels.map(parcel => parcel.payerContract()).filter(c => c);
     contracts = _.uniq(contracts, false, c => c._id);
-    return contracts.map(c => ({ label: c.toString(), value: c._id }));
+    return contracts.map(c => c.asOption());
   },
   parcelFinancesTableDataFn() {
-    const communityId = ModalStack.getVar('communityId');
-    return () => Parcels.find({ communityId, category: '@property' }).fetch().filter(p => !p.isLed() && p.payerContract());
+    const self = this;
+    return () => self.relevantParcels();
   },
   parcelFinancesOptionsFn() {
     return () => ({

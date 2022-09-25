@@ -24,6 +24,11 @@
       "label": "Notes"
     }
   },
+  "schemaText": {
+    "text": {
+      "label": "Text"
+    }
+  },
   "schemaAttachmentField": {
     "attachments": {
       "label": "Photo or file (if applicable)",
@@ -53,6 +58,9 @@
       }
     }
   },
+  "schemaAccountingPeriods": {
+    "accountingClosedAt": "Accounting closed at"
+  },
   "schemaAccounts": {
     "category": {
       "label": "Account category",
@@ -77,6 +85,10 @@
       "label": "Code",
       "placeholder": "(pl. 2)", 
       "help": "It needs to be unique. If there is already a transaction under this code, it is not modifiable."
+    },
+    "allowPost": {
+      "label": "Allow posting here",
+      "help": "Turn it off, if you will never post here"
     },
     "bank": {
       "label": "Bank name",
@@ -391,7 +403,7 @@
       "placeholder": "(eg. Elevator regular maintenance)"
     },
     "text": {
-      "label": "Decription",
+      "label": "Description",
       "placeholder": "(eg. 2012 CXXL. regulation makes it mandatory)"
     },
     "partnerId": {
@@ -409,7 +421,7 @@
     },
     "delegateId": {
       "label": "Paying partner",
-      "help": "Fill this if the bill is not paid bz the owner, but another delegated person. This person will get a copy of every bill."
+      "help": "Fill this if the bill should not be paid by the owner, but another person. This person will get a copy of every bill."
     },
     "topicIds": {
       "label": "Worksheets"
@@ -428,6 +440,18 @@
       "label": "Habitants",
       "placeholder": "(eg. 4)",
       "help": "Needed only if there is a billing based on this."
+    },
+    "debit": {
+      "label": "Charge"
+    },
+    "credit": {
+      "label": "Payin"
+    },
+    "debitTotal": {
+      "label": "Overdraft"
+    },
+    "creditTotal": {
+      "label": "Surplus"
     }
   },
   "schemaTopics": {
@@ -445,12 +469,17 @@
     },
     "title": {
       "label": "Title",
-      "placeholder": "Short summary"
+      "placeholder": "Short summary",
+      "help": "If no title is provided, the first line of the description will be used as title"
     },
     "text": {
-      "label": "Details",
+      "label": "Description",
       "placeholder": "Longer description (if needed)..."
     },
+    "notiLocalizer": {
+      "label": "Notification place",
+      "help": "You may specify one or more places (building, floors, units) where the notifications should go to. Leave it blank if you do not wish to localize the notifications"
+    },    
     "shareddocs": {
       "label": "Documents (if applicable)",
       "$": {
@@ -491,7 +520,7 @@
       "placeholder": "(eg. Should we paint the house blue?)"
     },
     "text": {
-      "label": "Details",
+      "label": "Description",
       "placeholder": "Longer description (if needed)..."
     },
     "agendaId": {
@@ -504,6 +533,10 @@
       "label": "Voting closes at"
     },
     "vote": {
+      "allowAddChoices": {
+        "label": "Allow others to add vote choices",
+        "help": "If you enable this, other users can also add more vote choices to the voting on the fly. Each new choice will display which user suggested it."
+      },
       "choices": {
         "label": "Vote choices",
         "help": "The voting type may already define the choices (like in the yes/no case). When it does not, you can define the choices yourself. So always choose the voting type first."
@@ -730,7 +763,6 @@
       "options": {
         "bill": "bill",
         "payment": "payment",
-        "remission": "remission",
         "receipt": "receipt",
         "transfer": "transfer",
         "exchange": "exchange",
@@ -823,24 +855,10 @@
         },
         "localizer": {
           "label": "Accounting location"
-        }
-      }
-    },
-    "pEntries": {
-      "label": "Partner entries",
-      "$": {
-        "amount": {
-          "label": "Amount"
         },
-        "side": {
-          "label": "Side",
-          "options": {
-            "debit": "Debit",
-            "credit": "Credit"
-          }
-        },
-        "partner": {
-          "label": "Partner/Contract"
+        "subTx": {
+          "label": "Accounting operation",
+          "help": "If trasaction consists of multiple accounting operations, provide here the index of which this belongs to"
         }         
       }
     },
@@ -852,16 +870,16 @@
       "label": "Customer bill being bartered"
     },
     "fromAccount": {
-      "label": "Moving from (Cr)"
+      "label": "Transfering from (Cr)"
     },
     "toAccount": {
-      "label": "Moving to (Dr)"
+      "label": "Transfering to (Dr)"
     },
     "fromPartner": {
-      "label": "Moving from (Cr)"
+      "label": "Sending from partner (Cr)"
     },
     "toPartner": {
-      "label": "Moving to (Dr)"
+      "label": "Receiving partner (Dr)"
     },
     "side": {
       "label": "Side",
@@ -871,10 +889,12 @@
       }
     },
     "account": {
-      "label": "Account"
+      "label": "Account",
+      "help": "Account under which the trasaction takes place"
     },
     "relationAccount": {
-      "label": "Account"
+      "label": "Debt tracking account",
+      "help": "No need to select the subaccount, it will be auto determined from the lines' sub accounts"
     },
     "payAccount": {
       "label": "Money account"
@@ -951,7 +971,6 @@
       "options": {
         "bill": "bill",
         "payment": "payment",
-        "remission": "remission",
         "receipt": "receipt",
         "transfer": "transfer between accounts",
         "exchange": "exchange between partners",
@@ -978,10 +997,19 @@
           "credit": "Követel"
         }
       },
-      "remission": {
-        "label": "Remission?",
-        "help": "Can be used if main category is payment."
-      }      
+      "paymentSubType": {
+        "label": "Payment subtype",
+        "help": "Can be used if main category is payment.",
+        "options": {
+          "payment": "payment",
+          "identification": "identification",
+          "remission": "remission"
+        }
+      },
+      "autoPosting": {
+        "label": "Automatic posting",
+        "help": "Enable this, if you wish to automatcally post these kind of transactions when they are created."
+      }
     },
     "debit": {
       "label": "Debited",
@@ -989,6 +1017,16 @@
     },
     "credit": {
       "label": "Credited",
+      "placeholder": ""
+    },
+    "debit_unidentified": {
+      "label": "Unidentified debit",
+      "help": "For payments only. Unidentified part of the debit can be accounted here.",
+      "placeholder": ""
+    },
+    "credit_unidentified": {
+      "label": "Unidentified credit",
+      "help": "For payments only. Unidentified part of the credit can be accounted here.",
       "placeholder": ""
     }
   },
@@ -1221,8 +1259,16 @@
       }
     },
     "outstanding": {
-      "label": "Unreconciled amount",
+      "label": "Unidentified",
       "placeholder": "(eg. 14560)"
+    },
+    "paymentSubType": {
+      "label": "Payment subtype",
+      "options": {
+        "payment": "payment",
+        "identification": "identification of previous payment",
+        "remission": "remission"
+      }
     }
   },
   "schemaParcelBillings": {

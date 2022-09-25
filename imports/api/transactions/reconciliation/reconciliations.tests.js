@@ -6,6 +6,7 @@ import { moment } from 'meteor/momentjs:moment';
 import { freshFixture } from '/imports/api/test-utils.js';
 import { Clock } from '/imports/utils/clock.js';
 import { Transactions } from '/imports/api/transactions/transactions.js';
+import { Txdefs } from '/imports/api/transactions/txdefs/txdefs.js';
 import { Accounts } from '/imports/api/transactions/accounts/accounts.js';
 import { StatementEntries } from '/imports/api/transactions/statement-entries/statement-entries.js';
 import { Communities } from '/imports/api/communities/communities.js';
@@ -93,7 +94,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPaymentTransactions()[0].reconciled, false);
         chai.assert.equal(bill.outstanding, 200);
         Fixture.builder.execute(Transactions.methods.post, { _id: paymentId });
-        chai.assert.equal(bill.partner().outstanding('supplier'), 200 + 200);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 200 + 200);
 
         const txId1 = bill.getPayments()[0].id;
         const entryId1 = Fixture.builder.create('statementEntry', {
@@ -109,7 +110,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPayments().length, 1);
         chai.assert.equal(bill.getPaymentTransactions()[0].reconciled, true);
         chai.assert.equal(bill.outstanding, 200);
-        chai.assert.equal(bill.partner().outstanding('supplier'), 200 + 200);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 200 + 200);
 
         const paymentId2 = Fixture.builder.create('payment', { bills: [{ id: billId, amount: 200 }], amount: 200, relation: bill.relation, partnerId: bill.partnerId, valueDate: Clock.currentDate(), payAccount: bankAccount.code });
         bill = Transactions.findOne(billId);
@@ -118,7 +119,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPaymentTransactions()[1].reconciled, false);
         chai.assert.equal(bill.outstanding, 0);
         Fixture.builder.execute(Transactions.methods.post, { _id: paymentId2 });
-        chai.assert.equal(bill.partner().outstanding('supplier'), 200 + 0);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 200 + 0);
 
         const txId2 = bill.getPayments()[1].id;
         const entryId2 = Fixture.builder.create('statementEntry', {
@@ -132,7 +133,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPayments().length, 2);
         chai.assert.equal(bill.getPaymentTransactions()[1].reconciled, true);
         chai.assert.equal(bill.outstanding, 0);
-        chai.assert.equal(bill.partner().outstanding('supplier'), 200 + 0);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 200 + 0);
       });
 
       it('Can NOT reconcile statementEntry with different account or date', function () {
@@ -221,7 +222,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPaymentTransactions()[0].reconciled, true);
         chai.assert.equal(bill.outstanding, 0);
         Fixture.builder.execute(Transactions.methods.post, { _id: bill.getPayments()[0].id });
-        chai.assert.equal(bill.partner().outstanding('supplier'), 200);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 200);
       });
 
       xit('Can primary auto reconcile when bill serial provided - rounded lower amount', function () {
@@ -249,7 +250,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPaymentTransactions()[0].isPosted(), false);
         Fixture.builder.execute(Transactions.methods.post, { _id: bill.payments[0].id }, Fixture.demoAccountantId);
         chai.assert.equal(bill.getPaymentTransactions()[0].isPosted(), true);
-        chai.assert.equal(bill.partner().outstanding('supplier'), 202);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 202);
         chai.assert.deepEqual(
           bill.getPaymentTransactions()[0].debit,
           [{ amount: 300, account: '`454', localizer: '@' }, { amount: -2, account: '`99' }],
@@ -285,7 +286,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPaymentTransactions()[0].isPosted(), false);
         Fixture.builder.execute(Transactions.methods.post, { _id: bill.payments[0].id }, Fixture.demoAccountantId);
         chai.assert.equal(bill.getPaymentTransactions()[0].isPosted(), true);
-        chai.assert.equal(bill.partner().outstanding('supplier'), 200 - 2);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 200 - 2);
         chai.assert.deepEqual(
           bill.getPaymentTransactions()[0].debit,
           [{ amount: 300, account: '`454', localizer: '@' }, { amount: 2, account: '`99' }],
@@ -324,14 +325,14 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPaymentTransactions()[0].reconciled, true);
         chai.assert.equal(bill.outstanding, 0);
         Fixture.builder.execute(Transactions.methods.post, { _id: bill.getPayments()[0].id });
-        chai.assert.equal(bill.partner().outstanding('supplier'), 0);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 0);
         bill2 = Transactions.findOne(billId2);
         chai.assert.equal(bill2.amount, 200);
         chai.assert.equal(bill2.getPayments().length, 1);
         chai.assert.equal(bill2.getPaymentTransactions()[0].reconciled, true);
         chai.assert.equal(bill2.outstanding, 0);
         Fixture.builder.execute(Transactions.methods.post, { _id: bill2.getPayments()[0].id });
-        chai.assert.equal(bill2.partner().outstanding('supplier'), 0);
+        chai.assert.equal(bill2.partner().outstanding(undefined, 'supplier'), 0);
       });
 
       it('Can reconcile two payments to one statementEntry', function () {
@@ -379,7 +380,7 @@ if (Meteor.isServer) {
         const entryId = Fixture.builder.create('statementEntry', {
           account: bankAccount.code,
           valueDate: Clock.currentDate(),
-          amount: 900,
+          amount: -900,
         });
         Fixture.builder.execute(StatementEntries.methods.reconcile, { _id: entryId, txId: paymentId1 });
         let entry = StatementEntries.findOne(entryId);
@@ -624,7 +625,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.amount, 300);
         chai.assert.equal(bill.getPayments().length, 0);
         chai.assert.equal(bill.outstanding, 300);
-        chai.assert.equal(bill.partner().outstanding('supplier'), 500);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 500);
       });
 
       it('[2] ... but can be reconciled by hand', function () {
@@ -648,7 +649,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill.getPayments().length, 1);
         chai.assert.equal(bill.getPaymentTransactions()[0].reconciled, true);
         chai.assert.equal(bill.outstanding, 0);
-        chai.assert.equal(bill.partner().outstanding('supplier'), 200);
+        chai.assert.equal(bill.partner().outstanding(undefined, 'supplier'), 200);
       });
 
       it('[3] Next enrty with same partnerName - will be recognized', function () {
@@ -672,7 +673,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill2.getPaymentTransactions()[0].reconciled, true);
         chai.assert.equal(bill2.outstanding, 0);
         Fixture.builder.execute(Transactions.methods.post, { _id: bill2.getPayments()[0].id });
-        chai.assert.equal(bill2.partner().outstanding('supplier'), 0);
+        chai.assert.equal(bill2.partner().outstanding(undefined, 'supplier'), 0);
       });
 
       it('Partner name containing dots can be saved and recognized', function () { 
@@ -716,7 +717,7 @@ if (Meteor.isServer) {
         chai.assert.equal(bill3.getPaymentTransactions()[0].reconciled, true);
         chai.assert.equal(bill3.outstanding, 400);
         Fixture.builder.execute(Transactions.methods.post, { _id: bill3.getPayments()[0].id });
-        chai.assert.equal(bill3.partner().outstanding('supplier'), 400);
+        chai.assert.equal(bill3.partner().outstanding(undefined, 'supplier'), 400);
 
         const entryId4 = Fixture.builder.create('statementEntry', {
           account: bankAccount.code,
@@ -724,24 +725,78 @@ if (Meteor.isServer) {
           name: 'Supplier.Inc.',
           amount: -100,
         });
-
         Fixture.builder.execute(StatementEntries.methods.recognize, { _id: entryId4 });
         const entry4 = StatementEntries.findOne(entryId4);
         chai.assert.equal(entry4.match.confidence, 'info');
 
         Fixture.builder.execute(StatementEntries.methods.autoReconcile, { _id: entryId4 });
         chai.assert.equal(Transactions.find({ category: 'payment' }).count(), 4);
-
         bill3 = Transactions.findOne(billId3);
         chai.assert.equal(bill3.amount, 500);
-        // no guessing for matching bills in info match
-        /* chai.assert.equal(bill3.getPayments().length, 2);
+        chai.assert.equal(bill3.getPayments().length, 2);
         chai.assert.equal(bill3.getPaymentTransactions()[0].reconciled, true);
         chai.assert.equal(bill3.outstanding, 300);
-        Fixture.builder.execute(Transactions.methods.post, { _id: bill3.getPayments()[1].id }); */
-        const payment4 = Transactions.findOne({ category: 'payment', 'lines.0': { $exists: true } });
-        Fixture.builder.execute(Transactions.methods.post, { _id: payment4._id });
-        chai.assert.equal(bill3.partner().outstanding('supplier'), 300);
+        Fixture.builder.execute(Transactions.methods.post, { _id: bill3.getPayments()[1].id });
+        chai.assert.equal(bill3.partner().outstanding(undefined, 'supplier'), 300);
+      });
+
+      it('Recognition deals with different signs', function () {
+        const billId4 = Fixture.builder.create('bill', {
+          relation: 'supplier',
+          partnerId: Fixture.supplier,
+          relationAccount: '`454',
+          lines: [{
+            title: 'Refund',
+            uom: 'piece',
+            quantity: 1,
+            unitPrice: -40,
+            account: '`861',
+            localizer: '@',
+          }],
+        });
+        Fixture.builder.execute(Transactions.methods.post, { _id: billId4 });
+        let bill4 = Transactions.findOne(billId4);
+        chai.assert.equal(bill4.partner().outstanding(undefined, 'supplier'), 260);
+
+        const entryId5 = Fixture.builder.create('statementEntry', {
+          account: bankAccount.code,
+          valueDate: Clock.currentDate(),
+          name: 'Supplier.Inc.',
+          amount: 40,
+        });
+
+        Fixture.builder.execute(StatementEntries.methods.recognize, { _id: entryId5 });
+        const entry5 = StatementEntries.findOne(entryId5);
+        chai.assert.equal(entry5.match.confidence, 'warning');
+        chai.assert.equal(entry5.match.tx.lines.length, 0);
+        chai.assert.equal(entry5.match.tx.bills.length, 0);
+
+        const entryId6 = Fixture.builder.create('statementEntry', {
+          account: bankAccount.code,
+          valueDate: Clock.currentDate(),
+          name: 'Supplier.Inc.',
+          amount: -280,
+        });
+
+        Fixture.builder.execute(StatementEntries.methods.recognize, { _id: entryId6 });
+        const entry6 = StatementEntries.findOne(entryId6);
+        chai.assert.equal(entry6.match.confidence, 'info');
+        chai.assert.equal(entry6.match.tx.lines.length, 0);
+
+        Fixture.builder.execute(StatementEntries.methods.autoReconcile, { _id: entryId6 });
+        chai.assert.equal(Transactions.find({ category: 'payment' }).count(), 5);
+        const bill3 = Transactions.findOne({ category: 'bill', 'lines.0.title': 'Next Work' });
+        bill4 = Transactions.findOne(billId4);
+        chai.assert.equal(bill3.amount, 500);
+        chai.assert.equal(bill3.getPayments().length, 3);
+        chai.assert.equal(bill3.outstanding, 0);
+        chai.assert.equal(bill4.amount, -40);
+        chai.assert.equal(bill4.getPayments().length, 1);
+        chai.assert.equal(bill4.outstanding, 0);
+
+        Fixture.builder.execute(Transactions.methods.post, { _id: bill3.getPayments()[2].id });
+        Fixture.builder.execute(Transactions.methods.post, { _id: bill4.getPayments()[0].id });
+        chai.assert.equal(bill3.partner().outstanding(undefined, 'supplier'), -20);
       });
 
       it('[1] Entry has unknown bank account number - will not be auto reconciled', function () {
@@ -1021,7 +1076,7 @@ if (Meteor.isServer) {
           amount: 500,
           valueDate: Clock.currentDate(),
           payAccount: bankAccount.code,
-          partnerId: Fixture.demoUserId,
+          partnerId: Fixture.partnerId(Fixture.demoUserId),
           lines: [{ account: '`861', amount: 500 }],
         });
         Fixture.builder.execute(Transactions.methods.post, { _id: firstPaymentId });
@@ -1059,11 +1114,13 @@ if (Meteor.isServer) {
           amount: -300,
         });
         const transferId = Fixture.builder.create('transfer', {
+          defId: Txdefs.getByName('Money transfer', Fixture.demoCommunityId)._id,
           amount: 300,
           valueDate: Clock.currentDate(),
           toAccount: '`383',
           fromAccount: '`382',
         });
+//        Fixture.builder.execute(Transactions.methods.post, { _id: transferId });
         Fixture.builder.execute(StatementEntries.methods.recognize, { _id: entryId });
         const entry = StatementEntries.findOne(entryId);
         chai.assert.equal(entry.match.txId, transferId);

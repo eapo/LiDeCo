@@ -29,12 +29,14 @@ import '/imports/api/transactions/parcel-billings/methods.js';
 import { StatementEntries } from '/imports/api/transactions/statement-entries/statement-entries.js';
 import '/imports/api/transactions/statement-entries/methods.js';
 import { Accounts } from '/imports/api/transactions/accounts/accounts.js';
+import { AccountingPeriods } from '/imports/api/transactions/periods/accounting-periods.js';
 
 import '/imports/api/topics/votings/votings.js';
 import '/imports/api/topics/tickets/tickets.js';
 import '/imports/api/topics/rooms/rooms.js';
 import { Clock } from '/imports/utils/clock';
 import { CommunityBuilder, DemoCommunityBuilder } from './community-builder.js';
+import { Txdefs } from '../api/transactions/txdefs/txdefs.js';
 
 const statusChange = Topics.methods.statusChange;
 
@@ -367,6 +369,7 @@ export function insertDemoHouse(lang, demoOrTest) {
   // ===== Breakdowns =====
   // Create breakdowns (incl Localizer)
   builder.execute(Transactions.methods.cloneAccountingTemplates, { communityId }, demoAccountantId);
+
 /*
   builder.create('cashAccount', {
     digit: '1',
@@ -711,6 +714,7 @@ export function insertDemoHouse(lang, demoOrTest) {
     },
     type: 'image/jpg',
     folder: 'voting',
+    topicId: voteTopicBike,
   });
 
   // ===== Tickets =====
@@ -944,7 +948,7 @@ export function insertDemoHouse(lang, demoOrTest) {
     title: 'Közös költség előírás',
     projection: {
       base: 'area',
-      unitPrice: 275,
+      unitPrice: 300,
     },
     digit: Accounts.findPayinDigitByName('Közös költség előírás'),
     localizer: '@',
@@ -1060,8 +1064,9 @@ export function insertDemoHouse(lang, demoOrTest) {
 
   ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].forEach(mm => {
     builder.create('transfer', {
+      defId: Txdefs.getByName('Money transfer', communityId)._id,
       valueDate: Date.newUTC(`${lastYear}-${mm}-01`),
-      amount: 100000,  
+      amount: 100000,
       fromAccount: '`382',
       toAccount: '`384',
     });
@@ -1106,7 +1111,9 @@ export function insertDemoHouse(lang, demoOrTest) {
   // An Invoice, half paid
   const invoiceId = builder.create('bill', {
     relation: 'customer',
-    valueDate: Date.newUTC(`${lastYear}-03-15`),
+    issueDate: Date.newUTC(`${lastYear}-06-15`),
+    deliveryDate: Date.newUTC(`${lastYear}-06-30`),
+    dueDate: Date.newUTC(`${lastYear}-06-30`),
     partnerId: customer0,
     contractId: contract10,
     relationAccount: '`31',
@@ -1124,7 +1131,7 @@ export function insertDemoHouse(lang, demoOrTest) {
     relation: 'customer',
     bills: [{ id: invoiceId, amount: 25000 }],
     amount: 25000,
-    valueDate: Date.newUTC(`${lastYear}-03-25`),
+    valueDate: Date.newUTC(`${lastYear}-06-25`),
     partnerId: customer0,
     payAccount: Accounts.findOne({ communityId, category: 'bank', name: 'Checking account' }).code,
   });
@@ -1196,7 +1203,7 @@ export function insertDemoHouse(lang, demoOrTest) {
       title: 'Állami támogatás tetőfelújításra',
       uom: 'db',
       quantity: 1,
-      unitPrice: 500000,
+      unitPrice: 600000,
       account: Accounts.findOne({ communityId, category: 'income', name: 'Támogatások' }).code,
 //      localizer: Accounts.findOne({ communityId, category: 'location', name: 'Central' }).code,
     }],
@@ -1211,7 +1218,7 @@ export function insertDemoHouse(lang, demoOrTest) {
       title: 'Antenna hely bérleti díj',
       uom: 'év',
       quantity: 1,
-      unitPrice: 55000,
+      unitPrice: 155000,
       account: Accounts.findOne({ communityId, category: 'income', name: 'Bérleti díj bevételek' }).code,
 //      localizer: Accounts.findOne({ communityId, category: 'location', name: 'Central' }).code,
     }],
@@ -1241,7 +1248,7 @@ export function insertDemoHouse(lang, demoOrTest) {
       title: 'Banki hitel',
       uom: 'db',
       quantity: 1,
-      unitPrice: 2300000,
+      unitPrice: 3500000,
       account: Accounts.findOne({ communityId, category: 'liability', name: 'Hosszú lejáratú bank hitel' }).code,
     }],
     payAccount: Accounts.findOne({ communityId, category: 'bank', name: 'Savings account' }).code,
@@ -1412,6 +1419,8 @@ Meteor.methods({
         // lastSeens were updated in the comments.insert method,
 
         builder.generateDemoPayments(demoParcel, demoMembership, 3);
+        const toPost = Transactions.find({ communityId, partnerId: demoMembership.partnerId, postedAt: { $exists: false } });
+        builder.execute(Transactions.methods.batch.post, { args: toPost.map(t => ({ _id: t._id })) }, builder.getUserWithRole('accountant'));
 
         Meteor.setTimeout(function () {
           purgeDemoUserWithParcel(demoUserId, demoParcelId, communityId);

@@ -14,6 +14,7 @@ import { Partners } from '/imports/api/partners/partners.js';
 import '/imports/api/partners/actions.js';
 import { partnersFinancesColumns } from '/imports/api/partners/tables.js';
 import { Transactions } from '/imports/api/transactions/transactions.js';
+import '/imports/api/transactions/balances/balances.js';
 import '/imports/api/transactions/actions.js';
 import { Txdefs } from '/imports/api/transactions/txdefs/txdefs.js';
 import { billColumns, receiptColumns } from '/imports/api/transactions/bills/tables.js';
@@ -37,7 +38,9 @@ Template.Accounting_bills.viewmodel({
     ModalStack.setVar('relation', this.activePartnerRelation(), true);
     instance.autorun(() => {
       //initializeDatatablesSelectButtons('Bills');
-      instance.subscribe('parcelBillings.inCommunity', { communityId: this.communityId() });
+      const communityId = this.communityId();
+      instance.subscribe('parcelBillings.inCommunity', { communityId });
+      instance.subscribe('balances.inCommunity', { communityId, partners: [], tags: ['T'], notNull: true });
     });
   },
   parcelBillings() {
@@ -78,6 +81,15 @@ Template.Accounting_bills.viewmodel({
     const self = this;
     return () => Transactions.find(self.filterSelector(category)).fetch();
   },
+/*  transactionsSubscriptionFn() {
+    const self = this;
+    return (instance) => {
+      const params = self.transactionsSubscriptionParams();
+      if (params) {
+        instance.subscribe('transactions.inCommunity', params);
+      }
+    };
+  }, */
   billsTableDataFn() {
     const self = this;
     return () => Transactions.find(self.filterSelector('bill')).fetch();
@@ -125,6 +137,12 @@ Template.Accounting_bills.viewmodel({
     selector.relation = this.activePartnerRelation();
     return selector;
   },
+/*   partnersSubscriptionFn() {
+    const self = this;
+    return (instance) => {
+      instance.subscribe('balances.inCommunity', { communityId: self.communityId(), partners: [], tags: ['T'] });
+    };
+  }, */
   partnersTableDataFn() {
     const self = this;
     return () => {
@@ -154,6 +172,7 @@ Template.Accounting_bills.events({
   },
   'click .js-edit-defs'(event, instance) {
     const modalContext = {
+      id: 'parcelbillings.view',
       title: 'Parcel billings',
       body: 'Parcel_billings',
       size: 'lg',

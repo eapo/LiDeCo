@@ -25,29 +25,33 @@ Meteor.publish('transactions.inCommunity', function transactionsInCommunity(para
   return Transactions.find(selector);
 });
 
-Meteor.publish('transactions.byPartnerContract', function transactionsInCommunity(params) {
+Meteor.publish('transactions.byPartnerContract', function transactionsByPartnerContract(params) {
   new SimpleSchema({
     communityId: { type: String },
     partnerId: { type: String, optional: true },
     contractId: { type: String, optional: true },
     begin: { type: Date, optional: true },
     end: { type: Date, optional: true },
+    outstanding: { type: Boolean, optional: true },
   }).validate(params);
-  const { communityId, partnerId, contractId, begin, end } = params;
+  const { communityId, partnerId, contractId, begin, end, outstanding } = params;
   if (!contractId && !partnerId) return this.ready();
   let contract;
   if (contractId) {
     contract = Contracts.findOne(contractId);
     if (partnerId) debugAssert(partnerId === contract.partnerId, 'partnerId param does not match contract');
   }
-
   const user = Meteor.users.findOne(this.userId);
   if (!user) return this.ready();
   if (!user.hasPermission('transactions.inCommunity', { communityId })) {
-    if (contractId && !_.contains(contract.entitledToView(), user.partnerId(communityId))) return this.ready();
+    if (!contract?.entitledToView(user)) return this.ready();
     if (!contractId && partnerId && Partners.findOne(partnerId).userId !== this.userId) return this.ready();
   }
   const selector = Transactions.makeFilterSelector(params);
+  if (outstanding) {
+    selector.outstanding = { $ne: 0 };
+    selector.category = 'bill';
+  }
   return Transactions.find(selector);
 });
 

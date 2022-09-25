@@ -36,13 +36,16 @@
     "petition": "If you agree with the proposal, please press the Support button, and then send your vore with the green button. If you don't agree, you don't need to do anything.",
     "multiChoose": "Please mark one or more choices, and then send your vote with the green button."
   },
+  "addNewChoiceWarning": "You are about to add a new choice to the voting, once it is added, it cannot be removed.",
 
   // finances
   "Breakdowns": "Accounting breakdowns",
+  "Accounting configuration": "Configuration",
   "customer_bill": "invoice",
   "supplier_bill": "bill",
   "parcel_bill": "parcel invoice",
   "unreconciledOnlyHelp": "Only those bills that are unpaid. Only those payments that are not reconciled to bills or not reconciled to bank statements. Only those partners which have an outstanding balance. In short only those items that need to be handled in some way.",
+  "Close period warning": "You will no longer be able to record transactions that belong to this period",
 
   // feedback
   "FeedbackPaneCallout": "Tell us your opinion about the app!",
@@ -65,6 +68,7 @@
   "err_constraint": "Value does not meet constraints",
   "err_notAvailable": "Not available",
   "errorInFormFieldValidation": "The form is incomplete. The red fields have to be filled with valid data.",
+  "err_email": "Could not send email",
 
   "youNeedToSaveYourChanges": "Your changes only take effect once you press the Save button at the bottom",
   "needToRemoveCurrentToAddNew" : "To add a different file, you need to remove the current one",

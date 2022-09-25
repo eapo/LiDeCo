@@ -6,7 +6,7 @@
     <div class="wrapper wrapper-content  animated fadeInRight">
     <div class="row">
 
-    {{#if currentUserHasPermission 'balances.ofAccounts'}}
+    {{#if currentUserHasPermission 'balances.inCommunity'}}
     <div class="col-md-12">
         <div class="ibox float-e-margins" id="moneyBalances">
             <div class="ibox-content">
@@ -49,7 +49,7 @@
     </div>
     {{/if}}
 
-    {{#if currentUserHasPermission 'balances.ofAccounts'}}
+    {{#if currentUserHasPermission 'balances.inCommunity'}}
     <div class="col-md-12">
         <div class="ibox float-e-margins" id="moneyBalances">
             <div class="ibox-content">
@@ -87,7 +87,7 @@
     </div>
     {{/if}}
 
-    {{#if currentUserHasPermission 'balances.ofAccounts'}}
+    {{#if currentUserHasPermission 'balances.inCommunity'}}
     <div class="col-md-12">
         <div class="ibox float-e-margins" id="commitmentBalances">
             <div class="ibox-content">
@@ -121,7 +121,7 @@
     </div>
     {{/if}}
 
-    {{#if currentUserHasPermission 'balances.ofLocalizers'}}
+    {{#if currentUserHasPermission 'transactions.inCommunity'}}
     <div class="col-md-12">
         <div class="ibox ibox-dark" id='account-history'>
             <div class="ibox-title">
@@ -129,13 +129,13 @@
                 {{>iboxTools}}
             </div>
             <div class="ibox-content">
-                {{>Account_history beginDate='2019-12-01' endDate='2019-12-31' accountOptions=(subAccountOptionsOf '`38') accountSelected=accountToView}}
+                {{>Account_history beginDate=beginDate endDate=defaultEndDate accountOptions=(subAccountOptionsOf '`38') accountSelected=accountToView}}
             </div>
         </div>
     </div>
     {{/if}}
 
-    {{#if currentUserHasPermission 'balances.ofLocalizers'}}
+    {{#if currentUserHasPermission 'balances.inCommunity'}}
     <!--div class="col-md-12">
         <div class="ibox ibox-dark" id='balances-report'>
             <div class="ibox-title">
@@ -164,7 +164,7 @@
     {{/if}}
 
     {{#if this.DEMO}}
-    {{#if currentUserHasPermission 'balances.ofAccounts'}}
+    {{#if currentUserHasPermission 'balances.inCommunity'}}
     <!--div class="col-md-12">
         <div class="ibox ibox-dark" id='incomes-expenses-history'>
             <div class="ibox-title">

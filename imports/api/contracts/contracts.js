@@ -41,11 +41,11 @@ Contracts.memberSchema = new SimpleSchema({
   partnerId: { type: String, regEx: SimpleSchema.RegEx.Id, optional: true,
     autoform: { ...noUpdate, ...choosePartnerOfParcel, value: () => {
       const leadParcelId = AutoForm.getFieldValue('leadParcelId');
-      return leadParcelId && Contracts.findOne({ parcelId: leadParcelId })?.partnerId;
+      return leadParcelId && Contracts.findOneActive({ parcelId: leadParcelId })?.partnerId;
     } },
   },
   delegateId: { type: String, regEx: SimpleSchema.RegEx.Id, optional: true, autoform: { ...choosePartner } },
-  parcelId: { type: String, regEx: SimpleSchema.RegEx.Id,  optional: true, autoform: { type: 'hidden', relation: '@property' } },
+  parcelId: { type: String, regEx: SimpleSchema.RegEx.Id,  optional: true, autoform: { type: () => (ModalStack.getVar('parcelId') ? 'hidden' : undefined), relation: '@property' } },
   leadParcelId: { type: String, regEx: SimpleSchema.RegEx.Id, optional: true, autoform: { ...noUpdate, ...chooseProperty } },
 //  membershipId: { type: String, regEx: SimpleSchema.RegEx.Id, autoform: { type: 'hidden' } },
   habitants: { type: Number, optional: true, autoform: { ...noUpdate } },
@@ -85,6 +85,10 @@ Contracts.helpers({
   },
   partner() {
     if (this.partnerId) return Partners.findOne(this.partnerId);
+    if (this.leadParcelId) {
+      const leadPartnerId = Contracts.findOneActive({ parcelId: this.leadParcelId })?.partnerId;
+      return leadPartnerId && Partners.findOne(leadPartnerId);
+    }
     return undefined;
   },
   partnerName() {
@@ -94,15 +98,14 @@ Contracts.helpers({
     if (this.delegateId) return Partners.findOne(this.delegateId);
     return undefined;
   },
-  entitledToView() {
+  entitledToView(user) {
     if (!this.partnerId) return undefined;
-    let partnerIds = [this.partnerId];
+    if (this.partner()?.userId === user._id) return true;
+    if (this.delegate()?.userId === user._id) return true;
     if (this.relation === 'member' && this.parcelId) {
-      const Memberships = Mongo.Collection.get('memberships');
-      const owners = Memberships.findActive({ role: 'owner', parcelId: this.parcelId }).map(m => m.partnerId);
-      partnerIds = _.union(partnerIds, owners);
-    }
-    return partnerIds;
+      const parcelDoc = Parcels.findOne(this.parcelId);
+      return user.hasPermission('parcels.finances', parcelDoc);
+    } else return false;
   },
   code() {
     return Partners.code(this.partnerId, this._id);
@@ -130,23 +133,42 @@ Contracts.helpers({
   },
   billingContract() {
     debugAssert(this.parcelId);
-    if (this.leadParcelId) return Contracts.findOne({ parcelId: this.leadParcelId });
+    if (this.leadParcelId) return Contracts.findOneActive({ parcelId: this.leadParcelId });
     else return this;
   },
-  balance() {
+  balance(account) {
     const Balances = Mongo.Collection.get('balances');
-    const partner = this.partnerId + '/' + this._id;
-    return Balances.get({ communityId: this.communityId, partner, tag: 'T' }).total();
+    // if no account is given, result is the entire balance
+    const selector = Object.cleanUndefined({ communityId: this.communityId, account, partner: this.code(), tag: 'T' });
+    return Balances.get(selector).total() * (-1);
   },
-  outstanding() {
-    return this.balance() * Relations.sign(this.relation) * -1;
+  outstanding(account) {
+    return this.balance(account) * Relations.sign(this.relation) * (-1);
+  },
+  openingBalance(tag) {
+    const Balances = Mongo.Collection.get('balances');
+    return Balances.get({ communityId: this.communityId, partner: this.code(), tag }, 'opening').total() * (-1);
+  },
+  closingBalance(tag) {
+    const Balances = Mongo.Collection.get('balances');
+    return Balances.get({ communityId: this.communityId, partner: this.code(), tag }, 'closing').total() * (-1);
+  },
+  periodTraffic(tag) {
+    const Balances = Mongo.Collection.get('balances');
+    return Balances.get({ communityId: this.communityId, partner: this.code(), tag }, 'period').total() * (-1);
   },
   displayTitle() {
     return this.title || __('default');
   },
+  displayFull() {
+    return this.partnerName() + ': ' + this.toString();
+  },
   toString() {
     if (this.relation === 'member') return `${__('property')} ${this.parcel()?.ref}`;
     else return this.displayTitle();
+  },
+  asOption() {
+    return { label: this.toString(), value: this._id };
   },
 });
 
@@ -225,6 +247,11 @@ Contracts.partnerContractOptions = function partnerContractOptions(selector) {
     label: Partners.code(pc[0].toString(), pc[1]?.toString()), // pc[0].toString() + (pc[1] ? `/${pc[1].toString()}` : ''),
     value: Partners.code(pc[0]._id, pc[1]?._id),
   }));
+  return options;
+};
+
+Contracts.partnerContractOptionsWithAll = function partnerContractOptionsWithAll(selector) {
+  const options = [{ label: __('All'), value: '' }].concat(Contracts.partnerContractOptions(selector));
   return options;
 };
 

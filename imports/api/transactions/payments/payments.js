@@ -13,15 +13,12 @@ import { Clock } from '/imports/utils/clock.js';
 import { debugAssert, productionAssert } from '/imports/utils/assert.js';
 import { equalWithinRounding } from '/imports/api/utils.js';
 import { Accounts } from '/imports/api/transactions/accounts/accounts.js';
-import { LocationTagsSchema } from '/imports/api/transactions/account-specification.js';
 import { Localizer } from '/imports/api/transactions/breakdowns/localizer.js';
-import { chooseConteerAccount } from '/imports/api/transactions/txdefs/txdefs.js';
+import { Txdefs, chooseConteerAccount } from '/imports/api/transactions/txdefs/txdefs.js';
+import { Transactions } from '/imports/api/transactions/transactions.js';
 import { Parcels } from '/imports/api/parcels/parcels.js';
 import { Relations } from '/imports/api/core/relations.js';
 import { Contracts, chooseContract } from '/imports/api/contracts/contracts.js';
-import { Memberships } from '/imports/api/memberships/memberships.js';
-import { Transactions } from '/imports/api/transactions/transactions.js';
-import { ParcelBillings } from '/imports/api/transactions/parcel-billings/parcel-billings.js';
 
 export const Payments = {};
 
@@ -81,17 +78,17 @@ _.each(billPaidSchema, val => val.autoform = _.extend({}, val.autoform, { afForm
 Payments.billPaidSchema = new SimpleSchema(billPaidSchema);
 
 const lineSchema = {
+  amount: { type: Number, decimal: true, autoform: { defaultValue: 0 } },
   account: { type: String /* account code */, autoform: chooseConteerAccount(), optional: true },
   localizer: { type: String /* account code */, autoform: { ...chooseLocalizerOfPartner }, optional: true },
-  amount: { type: Number, decimal: true, autoform: { defaultValue: 0 } },
+  parcelId: { type: String, regEx: SimpleSchema.RegEx.Id, optional: true, autoform: { omit: true } },
 };
 _.each(lineSchema, val => val.autoform = _.extend({}, val.autoform, { afFormGroup: { label: false } }));
-Payments.lineSchema = new SimpleSchema([lineSchema, LocationTagsSchema]);
+Payments.lineSchema = new SimpleSchema(lineSchema);
 
 const extensionSchema = {
   valueDate: { type: Date }, // same as Tx, but we need the readonly added
   payAccount: { type: String, optional: true, autoform: chooseConteerAccount(true) },
-  remission: { type: Boolean, optional: true },
 };
 _.each(extensionSchema, val => val.autoform = _.extend({}, val.autoform, { readonly() { return !!ModalStack.getVar('statementEntry'); } }));
 Payments.extensionSchema = new SimpleSchema(extensionSchema);
@@ -106,8 +103,17 @@ const paymentSchema = new SimpleSchema([
 ]);
 
 Transactions.categoryHelpers('payment', {
+  displayEntityName() {
+    return __(`schemaPayments.paymentSubType.options.${this.subType()}`);
+  },
+  subType() {
+    return this.txdef().data.paymentSubType;
+  },
   getBills() {
     return (this.bills || []).filter(b => b); // nulls can be in the array, on the UI, when lines are deleted
+  },
+  getBillDocs() {
+    return this.getBills().map(bp => Transactions.findOne(bp.id));
   },
   getLines() {
     return (this.lines || []).filter(l => l);
@@ -117,10 +123,6 @@ Transactions.categoryHelpers('payment', {
   },
   billCount() {
     return this.getBills().length;
-  },
-  calculateOutstanding() {
-    if (this.status === 'void') return 0;
-    return this.amountWoRounding() - this.allocatedToBills();
   },
   allocatedToBills() {
     let allocated = 0;
@@ -136,7 +138,11 @@ Transactions.categoryHelpers('payment', {
     return this.allocatedToBills() + this.allocatedToNonBills();
   },
   unallocated() {
-    return this.amount - this.allocatedSomewhere();
+    return this.amountWoRounding() - this.allocatedSomewhere();
+  },
+  calculateOutstanding() {
+    if (this.status === 'void') return 0;
+    return this.unallocated();
   },
   hasConteerData() {
     let result = true;
@@ -144,9 +150,17 @@ Transactions.categoryHelpers('payment', {
     this.getLines().forEach(line => { if (line && !line.account) result = false; });
     return result;
   },
+  correspondingBillTxdef() {
+    return Txdefs.findOne({ communityId: this.communityId, category: 'bill', 'data.relation': this.relation });
+  },
   validate() {
     let billSum = 0;
     const payment = this;
+    const partnerOrContract = this.contractId ? this.contract() : this.partner();
+    const availableAmount = partnerOrContract.outstanding(this.payAccount, this.relation) * -1;
+    if (this.subType() === 'identification' && this.amount > availableAmount) {
+      throw new Meteor.Error('err_notAllowed', 'Amount is larger than what is available on the given account for this partner/contract', `${availableAmount} - ${this.amount}`);
+    }
     this.getBills().forEach(pb => {
       const bill = Transactions.findOne(pb.id);
       function checkBillMatches(field) {
@@ -167,6 +181,9 @@ Transactions.categoryHelpers('payment', {
     if ((this.amount >= 0 && billSum > this.amount) || (this.amount <= 0 && billSum < this.amount)) {
       throw new Meteor.Error('err_sanityCheckFailed', "Bills' amounts cannot exceed payment's amount", `${billSum} - ${this.amount}`);
     }
+    if (this.subType() === 'remission' && billSum !== this.amount) {
+      throw new Meteor.Error('err_sanityCheckFailed', 'Remission has to be fully allocated to bills', `${billSum} - ${this.amount}`);
+    }
     let lineSum = 0;
     const lineValues = [];
     this.getLines().forEach(line => {
@@ -177,8 +194,14 @@ Transactions.categoryHelpers('payment', {
     if ((this.amount >= 0 && lineSum > this.amount) || (this.amount <= 0 && lineSum < this.amount)) {
       throw new Meteor.Error('err_sanityCheckFailed', "Lines amounts cannot exceed payment's amount", `${lineSum} - ${this.amount}`);
     }
-    if (this.amountWoRounding() !== lineSum + billSum) {
-      throw new Meteor.Error('err_notAllowed', 'Payment has to be fully allocated', { unallocated: this.unallocated() });
+    if (this.unallocated() !== 0) {
+      if (Math.abs(this.unallocated()) > Math.abs(this.amount)
+        || Math.sign(this.amountWoRounding()) !== Math.sign(this.unallocated())) {
+        throw new Meteor.Error('err_notAllowed', 'Remainder should not be a supplement', { unallocated: this.unallocated() });
+      }
+      if (this.subType() === 'identification') {
+        throw new Meteor.Error('err_notAllowed', 'Identification should not have an unindentified amount', { unallocated: this.unallocated() });
+      }
     }
     const connectedBillIds = _.pluck(this.getBills(), 'id');
     if (connectedBillIds.length !== _.uniq(connectedBillIds).length) {
@@ -220,40 +243,45 @@ Transactions.categoryHelpers('payment', {
       if (line.amount && line.amount < amountToAllocate) {
         amountToAllocate -= line.amount;
         return true;
-      } else {
+      } else if (line.amount > amountToAllocate) {
         line.amount = amountToAllocate;
         amountToAllocate = 0;
         return false;
       }
     });
-    if (amountToAllocate) {
-      if (this.lines?.length) (_.last(this.lines)).amount += amountToAllocate;
-      else this.lines = [{ amount: amountToAllocate }];
-    }
+    this.outstanding = this.calculateOutstanding();
   },
   fillFromStatementEntry(entry) {
     this.amount = entry.unreconciledAmount() * this.relationSign();
     this.payAccount = entry.account;
-    if (!this.bills && !this.lines) this.lines = [{ amount: this.amount }];
+    if (!this.bills && !this.lines && !_.contains(this.community().settings.paymentsToBills, this.relation)) this.lines = [{ amount: this.amount }];
   },
   makeJournalEntries(accountingMethod) {
     this.debit = [];
     this.credit = [];
     let unallocatedAmount = this.amountWoRounding();
-    this.makeEntry(this.relationSide(), { amount: this.amount, account: this.payAccount });
+    const subTxEntry = (accountingMethod === 'cash') ? { subTx: 1 } : {};
+    if (this.subType() !== 'remission') {
+      const payEntry = { amount: this.amount, account: this.payAccount, partner: this.partnerContractCode(), localizer: undefined, parcelId: undefined };
+      this.makeEntry(this.relationSide(), payEntry);
+    }
     this.getBills().forEach(billPaid => {
       if (unallocatedAmount === 0) return false;
       const bill = Transactions.findOne(billPaid.id);
-      if (!bill.isPosted()) throw new Meteor.Error('err_notAllowed', 'Bill has to be posted first');
       debugAssert(billPaid.amount < 0 === bill.amount < 0, 'Bill amount and its payment must have the same sign');
       const makeEntries = function makeEntries(line, amount) {
         const relationAccount = bill.lineRelationAccount(line);
-        const newEntry = { amount, localizer: line.localizer, parcelId: line.parcelId };
-        this.makeEntry(this.conteerSide(), _.extend({ account: relationAccount }, newEntry));
+        const newEntry = { amount, partner: this.partnerContractCode(), localizer: line.localizer, parcelId: line.parcelId };
+        this.makeEntry(this.conteerSide(), _.extend({ account: relationAccount }, _.extend({}, newEntry, subTxEntry)));
+        if (this.subType() === 'remission') {
+          this.makeEntry(this.relationSide(), _.extend({ account: line.account }, newEntry));
+        }
         if (accountingMethod === 'cash') {
-          const technicalAccount = Accounts.toTechnical(line.account);
-          this.makeEntry(this.relationSide(), _.extend({ account: technicalAccount }, newEntry));
-          this.makeEntry(this.conteerSide(), _.extend({ account: line.account }, newEntry));
+          const technicalAccount = Accounts.toTechnicalCode(line.account);
+          this.makeEntry(this.relationSide(), _.extend({ account: technicalAccount }, _.extend({}, newEntry, subTxEntry)));
+          if (this.subType() !== 'remission') {
+            this.makeEntry(this.conteerSide(), _.extend({ account: line.account }, newEntry));
+          }
         }
       };
 
@@ -300,24 +328,32 @@ Transactions.categoryHelpers('payment', {
     this.getLines().forEach(line => {
       if (unallocatedAmount === 0) return false;
       debugAssert(unallocatedAmount < 0 === line.amount < 0, 'All lines must have the same sign');
-      const amount = Math.smallerInAbs(line.amount, unallocatedAmount);
-      this.makeEntry(this.conteerSide(), { amount, account: line.account, localizer: line.localizer, parcelId: line.parcelId });
-      unallocatedAmount -= amount;
+      const newEntry = { amount: line.amount, partner: this.partnerContractCode(), localizer: line.localizer, parcelId: line.parcelId };
+      this.makeEntry(this.conteerSide(), _.extend({ account: line.account }, newEntry));
+      if (accountingMethod === 'cash') {
+        const technicalAccount = Accounts.toTechnicalCode(line.account);
+        const billDef = this.correspondingBillTxdef();
+        let relationAccount = _.first(billDef[this.relationSide()]);
+        let digit;
+        billDef[this.conteerSide()].forEach(code => {
+          if (line.account.startsWith(code)) {
+            digit = line.account.replace(code, '');
+          }
+        });
+        relationAccount += digit;
+        this.makeEntry(this.relationSide(), _.extend({ account: technicalAccount }, _.extend({}, newEntry, subTxEntry)));
+        this.makeEntry(this.conteerSide(), _.extend({ account: relationAccount }, _.extend({}, newEntry, subTxEntry)));
+      }
+      unallocatedAmount -= line.amount;
     });
-    if (unallocatedAmount) { // still has remainder
-      throw new Meteor.Error('err_notAllowed', 'Payment accounting can only be done, when all amount is allocated');
+    if (unallocatedAmount) { // still has remainder, that goes as unidentified
+      const unidentifiedAccount = this.txdef().unidentifiedAccount();
+      const newEntry = { account: unidentifiedAccount, amount: unallocatedAmount, partner: this.partnerContractCode(), localizer: undefined, parcelId: undefined };
+      this.makeEntry(this.conteerSide(), newEntry);
     }
     if (this.rounding) this.makeEntry(this.conteerSide(), { amount: this.rounding, account: '`99' });
     const legs = { debit: this.debit, credit: this.credit };
     return legs;
-  },
-  makePartnerEntries() {
-    this.pEntries = [{
-      partner: this.partnerContractCode(),
-      side: this.relationSide(),
-      amount: this.amountWoRounding(),
-    }];
-    return { pEntries: this.pEntries };
   },
   registerOnBill(billPaid, direction = +1) {
     const bill = Transactions.findOne(billPaid.id);

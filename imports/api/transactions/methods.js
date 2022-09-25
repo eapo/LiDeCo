@@ -11,6 +11,7 @@ import { checkExists, checkModifier, checkPermissions } from '/imports/api/metho
 import { Clock } from '/imports/utils/clock.js';
 import { Communities } from '/imports/api/communities/communities.js';
 import { Transactions } from '/imports/api/transactions/transactions.js';
+import { Balances } from '/imports/api/transactions/balances/balances.js';
 import { Meters } from '/imports/api/meters/meters.js';
 import { Contracts } from '/imports/api/contracts/contracts.js';
 import { Localizer } from '/imports/api/transactions/breakdowns/localizer.js';
@@ -18,6 +19,7 @@ import { Templates } from '/imports/api/transactions/templates/templates.js';
 import { sendBillEmail } from '/imports/email/bill-send.js';
 import '/imports/api/transactions/txdefs/methods.js';
 import { StatementEntries } from './statement-entries/statement-entries';
+import { AccountingPeriods } from './periods/accounting-periods.js';
 
 /*
 function runPositingRules(context, doc) {
@@ -43,6 +45,21 @@ function runPositingRules(context, doc) {
 }
 */
 
+function ensurePeriod(userId, doc) {
+  const periodsDoc = AccountingPeriods.get(doc.communityId);
+  if (!periodsDoc) return false;  // Can only happen on the client
+  if (periodsDoc.accountingClosedAt && (doc.valueDate.getTime() <= periodsDoc.accountingClosedAt.getTime())) {
+    throw new Meteor.Error('err_notAllowed', 'Period is already closed', { valueDate: doc.valueDate, accountingClosedAt: periodsDoc.accountingClosedAt });
+  }
+  if (!_.contains(periodsDoc.years, doc.valueDate.getFullYear().toString())) {
+    if (Meteor.isServer) {
+      AccountingPeriods.methods.open._execute({ userId },
+        { communityId: doc.communityId, tag: 'T-' + doc.valueDate.getFullYear() });
+    } else return false;
+  }
+  return true;  // true indicates success, so the following tx operation can go ahead
+}
+
 export const post = new ValidatedMethod({
   name: 'transactions.post',
   validate: new SimpleSchema({
@@ -60,12 +77,13 @@ export const post = new ValidatedMethod({
     if (doc.status !== 'void') { // voided already has the accounting data on it
       const community = Communities.findOne(doc.communityId);
       const accountingMethod = community.settings.accountingMethod;
-      const updateData = _.extend({},
-        doc.makeJournalEntries(accountingMethod),
-        doc.makePartnerEntries(),
-      );
-      _.extend(modifier.$set, { status: 'posted', ...updateData });
+      const journalEntries = doc.makeJournalEntries(accountingMethod);
+      _.extend(modifier.$set, { status: 'posted', ...journalEntries });
     }
+    doc.validateJournalEntries();
+    const ensurePeriodResult = ensurePeriod(this.userId, doc);
+    if (!ensurePeriodResult) return ensurePeriodResult;
+
     const result = Transactions.update(_id, modifier);
 
     if (!doc.isPosted() && Meteor.isServer && doc.category === 'bill') {
@@ -92,7 +110,7 @@ export const resend = new ValidatedMethod({
     const doc = checkExists(Transactions, _id);
     checkPermissions(this.userId, 'transactions.post', doc);
     if (Meteor.isServer && doc.category === 'bill' && doc.relation === 'member') {
-      sendBillEmail(doc);
+      if (sendBillEmail(doc) === false) throw new Meteor.Error('err_email');
     }
   },
 });
@@ -115,8 +133,11 @@ export const insert = new ValidatedMethod({
       if (!line.parcelId && parcel) line.parcelId = parcel._id;
     });
     doc.validate?.();
+    const ensurePeriodResult = ensurePeriod(this.userId, doc);
+    if (!ensurePeriodResult) return ensurePeriodResult;
 
     const _id = Transactions.insert(doc);
+
     if (doc.isAutoPosting()) post._execute({ userId: this.userId }, { _id });
 //    runPositingRules(this, doc);
     return _id;
@@ -133,25 +154,33 @@ export const update = new ValidatedMethod({
     const doc = checkExists(Transactions, _id);
     checkModifier(doc, modifier, ['communityId'], true);
     checkPermissions(this.userId, 'transactions.update', doc);
-    if (doc.isPosted() && doc.isPetrified()) {
+    if (doc.isPetrified()) {
       throw new Meteor.Error('err_permissionDenied', 'No permission to modify transaction after posting', { _id, modifier });
     }
+
     let newDoc = rusdiff.clone(doc);
     rusdiff.apply(newDoc, modifier);
     newDoc = Transactions._transform(newDoc);
     newDoc.validate?.();
     modifier.$set?.lines?.forEach((line, i) => {
-      if (line.localizer) {
+      if (line?.localizer) {
         const parcel = Localizer.parcelFromCode(line.localizer, doc.communityId);
         line.parcelId = parcel?._id;
       }
     });
 
+    const ensurePeriodResult = ensurePeriod(this.userId, doc);
+    if (!ensurePeriodResult) return ensurePeriodResult;
+
     const result = Transactions.update({ _id }, modifier, { selector: doc });
     if (doc.isPosted()) { // If doc was posted already, resposting is needed, because the accounting might have changed
       post._execute({ userId: this.userId }, { _id });
+      if (doc.category === 'bill' && doc.hasPayments()) {
+        doc.getPaymentTransactions().forEach(payment => {
+          if (payment.isPosted()) Transactions.methods.post._execute({ userId: this.userId }, { _id: payment._id });
+        });
+      }
     }
-
     return result;
   },
 });
@@ -201,6 +230,9 @@ export const remove = new ValidatedMethod({
     if (doc.category === 'bill' && doc.hasPayments()) {
       throw new Meteor.Error('err_unableToRemove', 'Not possible to remove bill, while it has payments, remove the payments first');
     }
+    const ensurePeriodResult = ensurePeriod(this.userId, doc);
+    if (!ensurePeriodResult) return ensurePeriodResult;
+
     if (doc.status === 'draft') {
       Transactions.remove(_id);
       result = null;
@@ -228,10 +260,38 @@ export const cloneAccountingTemplates = new ValidatedMethod({
   }).validator(),
   run({ communityId /*, name*/ }) {
     checkPermissions(this.userId, 'accounts.insert', { communityId });
-    if (Meteor.isClient) return // account templates are not available on client side
+    if (Meteor.isClient) return; // account templates are not available on client side
     Templates.clone('Condominium_COA', communityId);
     Templates.clone('Condominium_Localizer', communityId);
     Templates.clone('Condominium_Txdefs', communityId);
+    AccountingPeriods.insert({ communityId });
+  },
+});
+
+export const statistics = new ValidatedMethod({
+  name: 'transactions.statistics',
+  validate: new SimpleSchema({
+    communityId: { type: String, regEx: SimpleSchema.RegEx.Id },
+  }).validator(),
+  run({ communityId }) {
+    if (Meteor.isClient) return null;
+    const txStat = {};
+    const transactions = Transactions.find({ communityId }).fetch();
+    txStat.count = transactions.length;
+    txStat.statusdata = [];
+    Transactions.statusValues.forEach((status) => {
+      const name = status;
+      const count = transactions.filter(tx => tx.status === status).length;
+      txStat.statusdata.push({ name, count });
+    });
+    const postedTxs = transactions.filter(tx => tx.status !== 'draft');
+    txStat.misPosted = [];
+    postedTxs.forEach((tx) => {
+      try {
+        tx.validateJournalEntries();
+      } catch (err) { txStat.misPosted.push(tx.serialId || tx._id); }
+    });
+    return txStat;
   },
 });
 

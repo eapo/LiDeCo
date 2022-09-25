@@ -156,16 +156,27 @@ Partners.helpers({
     const Transactions = Mongo.Collection.get('transactions');
     return Transactions.find({ partnerId: this._id, category: 'bill', outstanding: { $ne: 0 } });
   },
-  balance() {
-    // negative amount if relation = supplier
+  balance(account) {
+    // The balance of the partner from the perspective of the contra party
+    // Positive means we owe him, negative means he owes us.
+    // So negative if (relation === customer and has more bills than payments)
+    //             or (relation === supplier and has more payments than bills)
+    // Balances.get returns the Debit total, which is from the perspective of our asset sheet, so we need to flip the sign
     const Balances = Mongo.Collection.get('balances');
-    return Balances.get({ communityId: this.communityId, partner: this._id, tag: 'T' }).total();
+    // if no account is given, result is the entire balance
+    const selector = Object.cleanUndefined({ communityId: this.communityId, account, partner: this._id, tag: 'T' });
+    return Balances.get(selector).total() * (-1);
   },
-  outstanding(relation = ModalStack.getVar('relation')) {
-    return this.balance() * Relations.sign(relation) * -1;
+  outstanding(account, relation = ModalStack.getVar('relation')) {
+    // The outstanding amount toward the contra party that we need to settle with him
+    // Positive means he has to send us this amount if he is a customer,
+    //                or we need to send him this amount if he is a supplier
+    // Negative means we need to return him this amount, if he is a customer
+    //                or he has to return this amount to us, if he is supplier 
+    return this.balance(account) * Relations.sign(relation) * (-1);
   },
   mostOverdueDays() {
-    if (this.balance() === 0) return 0;
+    if (this.balance() >= 0) return 0; // we do not check suppliers, otherwise outstanding() with proper relation should be used
     const daysOfExpiring = this.outstandingBills().map(bill => bill.overdueDays());
     return daysOfExpiring.length > 0 ? Math.max.apply(Math, daysOfExpiring) : 0;
   },

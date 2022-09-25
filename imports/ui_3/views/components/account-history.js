@@ -15,11 +15,15 @@ Template.Account_history.viewmodel({
   accountOptions: [],
   localizerSelected: undefined,
   localizerOptions: [],
+  partnerContractSelected: undefined,
+  partnerContractOptions: [],
   status: 'Reconciled',
   onCreated(instance) {
     const self = this;
     instance.autorun(() => {
+      const communityId = ModalStack.getVar('communityId');
       instance.subscribe('transactions.byAccount', this.subscribeParams());
+      instance.subscribe('txdefs.inCommunity', { communityId });
 //    const today = moment().format('L');
 //    this.endDate(today);
     });
@@ -42,6 +46,7 @@ Template.Account_history.viewmodel({
       end: validDateOrUndefined(this.endDate()),
       account: this.accountSelected(),
       localizer: this.localizerSelected(),
+      partner: this.partnerContractSelected(),
     };
     return selector;
   },
@@ -51,10 +56,10 @@ Template.Account_history.viewmodel({
     let total = 0;
     const entriesWithRunningTotal = entries.map(e => {
       total += e.effectiveAmount(this.sign());
-      return _.extend(e, { 
+      return _.extend(e, {
         total,
-        debitTotal() { return this.total > 0 ? this.total : 0 },
-        creditTotal() { return this.total < 0 ? (-1 * this.total) : 0 },
+        debitTotal() { return this.total > 0 ? this.total : 0; },
+        creditTotal() { return this.total < 0 ? (-1 * this.total) : 0; },
       });
     });
     return entriesWithRunningTotal.reverse();

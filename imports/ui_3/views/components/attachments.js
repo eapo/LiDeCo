@@ -10,8 +10,8 @@ Template.Attachments.helpers({
     const attachments = { images: [], files: [] };
     const docAttachments = callOrRead.call(this.doc, this.doc.attachments);
     docAttachments?.forEach((path) => {
-      if (isImage(path)) attachments.images.push(path);
-      else attachments.files.push(path);
+      if (path && isImage(path)) attachments.images.push(path);
+      else if (path) attachments.files.push(path);
     });
     return attachments;
   },
@@ -25,6 +25,7 @@ Template.Attachments.events({
   'click .js-show-image'(event, instance) {
     const url = event.target.getAttribute('src');
     Modal.show('Modal', {
+      id: 'image.view',
       title: (decodeURI(url.split('/').pop())),
       body: 'Image',
       bodyContext: { url },

@@ -27,10 +27,13 @@ import { Transactions } from '/imports/api/transactions/transactions.js';
 import { ParcelBillings } from '/imports/api/transactions/parcel-billings/parcel-billings.js';
 import { StatementEntries } from '/imports/api/transactions/statement-entries/statement-entries.js';
 import { Txdefs } from '/imports/api/transactions/txdefs/txdefs.js';
+import { defineTxdefTemplates } from '/imports/api/transactions/txdefs/template';
 import { Balances } from '/imports/api/transactions/balances/balances.js';
 import { Accounts } from '/imports/api/transactions/accounts/accounts.js';
+import { Period } from '/imports/api/transactions/periods/period.js';
+import { AccountingPeriods } from '/imports/api/transactions/periods/accounting-periods.js';
 import { officerRoles, everyRole, nonOccupantRoles, Roles } from '/imports/api/permissions/roles.js';
-import { updateMyLastSeen } from '/imports/api/users/methods.js';
+import { updateMyLastSeen, mergeLastSeen } from '/imports/api/users/methods.js';
 import { autoValueUpdate } from '/imports/api/mongo-utils.js';
 
 import '/imports/api/transactions/accounts/template.js';
@@ -916,7 +919,257 @@ Migrations.add({
   },
 });
 
+Migrations.add({
+  version: 54,
+  name: 'Txdef paymentSubType',
+  up() {
+    Txdefs.find({ category: 'payment' }).forEach(txdef => {
+      const value = txdef.data.remission ? 'remission' : 'payment';
+      if (!txdef.data.paymentSubType) {
+        Txdefs.direct.update(txdef._id, { $set: { 'data.paymentSubType': value } });
+      }
+    });
+  },
+});
+
+Migrations.add({
+  version: 55,
+  name: 'enableMeterEstimationDays',
+  up() {
+    Communities.direct.update({}, { $set: { 'settings.enableMeterEstimationDays': 30 } }, { multi: true });
+  },
+});
+
+Migrations.add({
+  version: 56,
+  name: 'Txdef updates',
+  up() {
+    defineTxdefTemplates();
+    const template = Templates.findOne('Condominium_Txdefs');
+    Communities.find().forEach(community => {
+      const communityId = community._id;
+      template.txdefs.forEach(txdef => {
+        Txdefs.define(_.extend({}, txdef, { communityId }));
+      });
+    });
+  },
+});
+
+Migrations.add({
+  version: 57,
+  name: 'Payments from overpayments into separate transactions and fix db inconsistency',
+  up() {
+    Transactions.find({ relation: 'member', category: 'bill', relationAccount: { $ne: '`33' } }).fetch().forEach(tx => {
+      Transactions.direct.update(tx._id, { $set: { relationAccount: '`33' } }, { selector: tx, validate: false });
+      if (tx.isPosted()) {
+        const userId = tx.community().admin()._id;
+        Transactions.methods.post._execute({ userId }, { _id: tx._id });
+      }
+    });
+    Transactions.find({ lines: { $exists: true }, 'lines.account': new RegExp('^[^`]') }).fetch().forEach(tx => {
+      const newLines = [];
+      tx.lines.forEach((line, index) => {
+        let account = line.account;
+        if (!line.account.startsWith('`')) {
+          account = '`' + line.account;
+        }
+        line.account = account;
+        newLines.push(line);
+      });
+      Transactions.direct.update(tx._id, { $set: { lines: newLines } }, { selector: tx, validate: false });
+    });
+
+    Transactions.find({ communityId: 'y38GnfKaWTgsmxrfB', category: 'payment', relation: 'member', status: 'posted' }).fetch().forEach(payment => {
+      const olderBills = [];
+      const newerBills = [];
+      const community = payment.community();
+      const userId = community.admin()._id;
+      payment.getBills().forEach((bill, index) => {
+        const billDoc = Transactions.findOne(bill.id);
+        if (billDoc.issueDate.getTime() > payment.valueDate.getTime()) newerBills.push(bill);
+        else olderBills.push(bill);
+      });
+      const preservedLines = [];
+      payment.getLines().forEach(line => {
+        if (!_.contains(payment.txdef().conteerCodes(), line.account)) {
+          if (community.settings.accountingMethod === 'cash') preservedLines.push(line);
+          else if (community.settings.accountingMethod === 'accrual' && payment.relation === 'member') preservedLines.push(line);
+        }
+        if (community.settings.accountingMethod === 'accrual' && payment.relation !== 'member') preservedLines.push(line);
+      });
+      if (newerBills.length) {
+        try {
+          Transactions.update({ _id: payment._id }, { $set: { bills: olderBills, lines: preservedLines } }, { selector: payment });
+        } catch (err) {
+          console.log(err);
+          console.log('Payment: ', JSON.stringify(payment));
+        }
+        if (payment.isPosted()) {
+          try {
+            Transactions.methods.post._execute({ userId }, { _id: payment._id });
+          } catch (err) {
+            console.log(err);
+            console.log('Payment at post: ', JSON.stringify(payment));
+          }
+        }
+        newerBills.forEach(nB => {
+          const newBill = Transactions.findOne(nB.id);
+          let newPayment;
+          try {
+            newPayment = Transactions.insert({
+              communityId: newBill.communityId,
+              partnerId: newBill.partnerId,
+              contractId: newBill.contractId,
+              relation: newBill.relation,
+              category: 'payment',
+              defId: newBill.correspondingIdentificationTxdef()._id,
+              valueDate: newBill.issueDate,
+              amount: nB.amount,
+              payAccount: '`431',
+              bills: [nB],
+            });
+          } catch (err) {
+            console.log(err);
+            console.log('newPayment - bill on payment, bill in db: ', nB.id, nB.amount, JSON.stringify(newBill));
+            console.log('original tx: ', JSON.stringify(payment));
+          }
+          if (payment.isPosted() && newPayment) {
+            try {
+              Transactions.methods.post._execute({ userId }, { _id: newPayment });
+            } catch (err) {
+              console.log(err);
+              console.log('newPayment at post: ', JSON.stringify(Transactions.findOne(newPayment)));
+              console.log('original tx: ', JSON.stringify(payment));
+            }
+          }
+        });
+      } else {
+        if (payment.lines?.length) {
+          const modifier = preservedLines.length ? { $set: { lines: preservedLines } } : { $unset: { lines: '' } };
+          autoValueUpdate(Transactions, payment, modifier, 'outstanding', d => d.calculateOutstanding());
+          Transactions.update({ _id: payment._id }, modifier, { selector: payment });
+          if (payment.isPosted()) Transactions.methods.post._execute({ userId }, { _id: payment._id });
+        }
+      }
+    });
+  },
+});
+
+Migrations.add({
+  version: 58,
+  name: 'Remove partner entries',
+  up() {
+    Communities.find().forEach(community => {
+      const userId = community.userWithRole('admin')?._id;
+      if (!userId) return;
+      Transactions.find({ communityId: community._id, pEntries: { $exists: true } }).fetch().forEach(tx => {
+        Transactions.methods.post._execute({ userId }, { _id: tx._id });
+        Transactions.direct.update({ _id: tx._id }, { $unset: { pEntries: '' } }, { selector: tx, validate: false });
+      });
+    });
+    Balances.direct.remove({ partner: { $exists: true }, account: '`' });
+  },
+});
+
+Migrations.add({
+  version: 59,
+  name: 'Ensure freeTxs have amounts on all journal entries',
+  up() {
+    Communities.direct.update({}, { $set: { 'settings.allowPostToGroupAccounts': true } }, { multi: true });
+    Transactions.find({ category: 'freeTx' }).fetch().forEach(tx => {
+      if (tx.isPosted()) {
+        Transactions.methods.post._execute({ userId: tx.community().admin()._id }, { _id: tx._id });
+      }
+    });
+  },
+});
+
+Migrations.add({
+  version: 60,
+  name: 'Mark group accounts',
+  up() {
+    Accounts.find({}).forEach(doc => {
+      const code = doc.code;
+      if (Accounts.find({ communityId: doc.communityId, code: new RegExp('^' + code) }).fetch().length > 1) {
+        Accounts.direct.update(doc._id, { $set: { isGroup: true } });
+      }
+    });
+  },
+});
+
+Migrations.add({
+  version: 61,
+  name: 'Repost older transactions',
+  up() {
+    const end = new Date('2020-09-01');
+    Communities.find().forEach(community => {
+      const userId = community.userWithRole('admin')?._id;
+      if (!userId) return;
+      Transactions.find({ communityId: community._id, postedAt: { $exists: true }, createdAt: { $lte: end } }).forEach(tx => {
+        Transactions.methods.post._execute({ userId }, { _id: tx._id });
+      });
+    });
+  },
+});
+
+Migrations.add({
+  version: 62,
+  name: 'No more bank expense',
+  up() {
+    Communities.find().forEach(community => {
+      const oldTxdef = Txdefs.findByName('Bank fee expense', community._id);
+      if (!oldTxdef) return;
+      const newTxdef = Txdefs.getByName('Expense receipt', community._id);
+      Transactions.direct.update({ communityId: community._id, defId: oldTxdef._id }, 
+        { $set: { defId: newTxdef._id } }, { multi: true });
+      Txdefs.direct.remove(oldTxdef._id);
+    });
+  },
+});
+
+Migrations.add({
+  version: 63,
+  name: 'Create accounting periods',
+  up() {
+    Communities.find().forEach(community => {
+      const communityId = community._id;
+      const balances = Balances.find({ communityId });
+      let years = _.filter(balances.map(b => Period.fromTag(b.tag).year), y => y);
+      years = _.uniq(_.sortBy(years, y => y), true);
+      AccountingPeriods.upsert({ communityId }, { $set: { communityId, years } });
+    });
+  },
+});
+
+Migrations.add({
+  version: 64,
+  name: 'Merge double room topics',
+  up() {
+    Communities.find().forEach(community => {
+      const communityId = community._id;
+      Topics.find({ communityId, category: 'room' }).forEach((room) => {
+        const participant1 = room.participantIds[0];
+        const participant2 = room.participantIds[1];
+        const original = Topics.find({ communityId, participantIds: { $all: [participant1, participant2] }, title: room.title },
+          { sort: { createdAt: 1 } }).fetch()[0];
+        const originalId = original._id;
+        if (room._id === originalId) return;
+        room.comments().forEach((comment) => {
+          Comments.update(comment._id, { $set: { topicId: originalId } });
+        });
+        [participant1, participant2].forEach((userId) => {
+          const user = Meteor.users.findOne(userId);
+          mergeLastSeen(user, room._id, originalId);
+        });
+        Topics.direct.remove(room._id);
+      });
+    });
+  },
+});
+
 // Use only direct db operations to avoid unnecessary hooks!
+
+// Iterate on fetched cursors, if it runs a long time, because cursors get garbage collected after 10 minutes
 
 Meteor.startup(() => {
   Migrations.unlock();

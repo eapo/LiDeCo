@@ -143,17 +143,11 @@ Parcels.helpers({
     const selector = { communityId: this.communityId, approved: true, parcelId: this.leadParcelId(), role: 'owner' };
     return active ? Memberships.findActive(selector) : Memberships.find(selector);
   },
-  representors(active = true) {
-    const Memberships = Mongo.Collection.get('memberships');
-    const selector = { communityId: this.communityId, approved: true, parcelId: this.leadParcelId(), role: 'owner', 'ownership.representor': true };
-    return active ? Memberships.findActive(selector) : Memberships.find(selector);
-  },
   representor() {
-    let representor = this.representors().fetch()[0];
-    if (!representor) {
-      const owners = this.owners().fetch();
-      if (owners.length === 1) representor = owners[0];
-    }
+    const owners = this.owners().fetch();
+    let representor;
+    if (owners.length === 1) representor = owners[0];
+    else representor = owners.find(o => o.ownership?.representor === true);
     return representor;
   },
   representorOrFirstOwner() {
@@ -200,10 +194,10 @@ Parcels.helpers({
   },
   balance() {
     const Balances = Mongo.Collection.get('balances');
-    return -1 * Balances.get({ communityId: this.communityId, account: '`33', localizer: this.code, tag: 'T' }).total();
+    return Balances.get({ communityId: this.communityId, localizer: this.code, tag: 'T' }).total() * (-1);
   },
   outstanding() {
-    return this.balance() * Relations.sign('member') * -1;
+    return this.balance() * Relations.sign('member') * (-1);
   },
   display() {
     return `${this.ref || '?'} (${this.location()}) ${this.type}`;
@@ -415,3 +409,19 @@ export const chooseProperty = {
   },
   firstOption: () => __('(Select one)'),
 };
+
+export const chooseLocalizer = Parcels.choosePhysical;
+/*
+export const chooseLocalizer = {
+  options() {
+    const communityId = ModalStack.getVar('communityId');
+    const physicalPlaces = new RegExp('^@');
+    const parcels = Parcels.find({ communityId, category: physicalPlaces }, { sort: { ref: 1 } });
+    const options = parcels.map(function option(p) {
+      return { label: p.displayAccount(), value: p._id };
+    });
+    return options;
+  },
+  firstOption: () => __('(Select one)'),
+};
+*/
